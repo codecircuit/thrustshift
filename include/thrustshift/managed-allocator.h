@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cuda/api_wrappers.hpp>
+#include <cuda/runtime_api.hpp>
 
 namespace thrustshift {
 
@@ -16,7 +16,7 @@ class managed_allocator {
 	}
 
 	value_type* allocate(std::size_t n) {
-		auto mem = cuda::memory::managed::detail::allocate(n * sizeof(T));
+		auto mem = cuda::memory::managed::detail::allocate(n * sizeof(T)).get();
 		if (mem == nullptr)
 			throw std::bad_alloc{};
 		return static_cast<value_type*>(mem);

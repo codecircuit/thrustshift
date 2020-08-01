@@ -2,7 +2,7 @@
 
 #include <type_traits>
 
-#include <cuda/api_wrappers.hpp>
+#include <cuda/runtime_api.hpp>
 #include <gsl-lite/gsl-lite.hpp>
 
 namespace thrustshift {
