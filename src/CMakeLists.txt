@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.18)
 
 find_package(CMakeshift REQUIRED)
 find_package(gsl-lite REQUIRED)
@@ -16,7 +16,7 @@ target_compile_features(thrustshift
 target_link_libraries(thrustshift
     INTERFACE
         gsl::gsl-lite-v1
-        cuda-api-wrappers::cuda-api-wrappers)
+        cuda-api-wrappers::runtime-api)
 
 install(
     DIRECTORY
