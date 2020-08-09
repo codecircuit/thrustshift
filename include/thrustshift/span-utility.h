@@ -9,11 +9,9 @@ namespace thrustshift {
 
 template <class T, class RangeOfRanges>
 std::vector<gsl_lite::span<T>> make_spans_from_ranges(RangeOfRanges&& r) {
-//	using T = typename std::remove_reference<RangeOfRanges>::type::value_type::value_type;
-	std::vector<gsl_lite::span<T>> spans;
-	spans.reserve(r.size());
-	for (auto& e : r) {
-		spans.emplace_back(gsl_lite::make_span(e.data(), e.size()));
+	std::vector<gsl_lite::span<T>> spans(r.size());
+	for (size_t i = 0; i < spans.size(); ++i) {
+		spans[i] = gsl_lite::make_span(r[i].data(), r[i].size());
 	}
 	return spans;
 }
@@ -21,10 +19,9 @@ std::vector<gsl_lite::span<T>> make_spans_from_ranges(RangeOfRanges&& r) {
 template <class T, class RangeOfPtrs>
 std::vector<gsl_lite::span<T>> make_spans_from_ptrs(RangeOfPtrs&& r, size_t N) {
 
-	std::vector<gsl_lite::span<T>> spans;
-	spans.reserve(r.size());
-	for (auto& e : r) {
-		spans.emplace_back(gsl_lite::make_span(e.get(), N));
+	std::vector<gsl_lite::span<T>> spans(r.size());
+	for (size_t i = 0; i < spans.size(); ++i) {
+		spans[i] = gsl_lite::make_span(r[i].get(), N);
 	}
 	return spans;
 }
