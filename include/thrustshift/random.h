@@ -34,6 +34,7 @@ void generate_normal_real(Range&& range,
                           T mean = T{0},
                           T stddev = T{1},
                           unsigned long long seed = 0) {
+	gsl_Expects(stddev >= 0);
 	std::default_random_engine rng(seed);
 	std::normal_distribution<T> dist(mean, stddev);
 	generate(std::forward<Range>(range), dist, rng);
