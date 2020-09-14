@@ -3,6 +3,8 @@
 #include <random>
 #include <type_traits>
 
+#include <gsl-lite/gsl-lite.hpp>
+
 namespace thrustshift {
 
 namespace random {
@@ -20,6 +22,7 @@ void generate_uniform_real(Range&& range,
                            T min = T{0},
                            T max = T{1},
                            unsigned long long seed = 0) {
+	gsl_Expects(min <= max);
 	std::default_random_engine rng(seed);
 	std::uniform_real_distribution<T> dist(min, max);
 	generate(std::forward<Range>(range), dist, rng);
