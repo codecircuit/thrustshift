@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include <thrustshift/managed-allocator.h>
+#include <thrustshift/allocator.h>
 
 namespace thrustshift {
 
@@ -12,7 +12,7 @@ using managed_vector = std::vector<T, Allocator>;
 //! If a span-like class does not provide `begin()` and `end()` functions, but
 //! offers a `operator[]` and a `size()` function, like the vectors classes of
 //! Eigen3
-template<class Range>
+template <class Range>
 auto make_managed_vector(Range&& r) {
 
 	using value_type = typename Range::value_type;
@@ -24,4 +24,4 @@ auto make_managed_vector(Range&& r) {
 	return result;
 }
 
-}
+} // namespace thrustshift

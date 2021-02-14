@@ -26,12 +26,19 @@ std::vector<gsl_lite::span<T>> make_spans_from_ptrs(RangeOfPtrs&& r, size_t N) {
 	return spans;
 }
 
-template<typename T>
+template <typename T>
 gsl_lite::span<T> subtract(gsl_lite::span<T>& pool, size_t size_of_new_span) {
 	gsl_Expects(pool.size() >= size_of_new_span);
 	auto piece = pool.first(size_of_new_span);
 	pool = pool.subspan(size_of_new_span);
 	return piece;
+}
+
+//! Allocate and create span. User is responsible to prevent memory leaks.
+template <typename T, class Allocator>
+gsl_lite::span<T> make_span_from_allocation(size_t N, const Allocator& alloc) {
+	T* ptr = alloc.allocate(N);
+	return gsl_lite::make_span(ptr, N);
 }
 
 } // namespace thrustshift
