@@ -20,4 +20,5 @@ cmakeshift_install_basic_package_files(thrustshift
     EXPORT thrustshift
     DEPENDENCIES
         "cuda-api-wrappers"
+        "sysmakeshift"
         "gsl-lite")

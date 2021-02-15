@@ -34,11 +34,4 @@ gsl_lite::span<T> subtract(gsl_lite::span<T>& pool, size_t size_of_new_span) {
 	return piece;
 }
 
-//! Allocate and create span. User is responsible to prevent memory leaks.
-template <typename T, class Allocator>
-gsl_lite::span<T> make_span_from_allocation(size_t N, const Allocator& alloc) {
-	T* ptr = alloc.allocate(N);
-	return gsl_lite::make_span(ptr, N);
-}
-
 } // namespace thrustshift
