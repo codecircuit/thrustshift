@@ -19,12 +19,10 @@ __global__ void axmy(A a, RangeX x, RangeY y, RangeD d) {
 
 } // namespace kernel
 
+namespace async {
+
 template <typename A, class RangeX, class RangeY, class RangeD>
-void enqueue_axmy(cuda::stream_t& stream,
-                  A a,
-                  RangeX&& x,
-                  RangeY&& y,
-                  RangeD&& d) {
+void axmy(cuda::stream_t& stream, A a, RangeX&& x, RangeY&& y, RangeD&& d) {
 
 	gsl_Expects(x.size() == y.size());
 	gsl_Expects(y.size() == d.size());
@@ -44,5 +42,7 @@ void enqueue_axmy(cuda::stream_t& stream,
 	                     y,
 	                     d);
 }
+
+} // namespace async
 
 } // namespace thrustshift
