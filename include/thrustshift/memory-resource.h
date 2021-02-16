@@ -27,6 +27,25 @@ class managed_resource_type : public std::pmr::memory_resource {
 	}
 };
 
+//! Device CUDA Memory Resource
+class device_resource_type : public std::pmr::memory_resource {
+	void* do_allocate(std::size_t bytes, std::size_t alignment) override {
+		auto region = cuda::memory::device::detail::allocate(bytes);
+		return region.get();
+	}
+
+	void do_deallocate(void* p,
+	                   std::size_t bytes,
+	                   std::size_t alignment) override {
+		cuda::memory::device::free(p);
+	}
+
+	bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
+		return this == &other;
+	}
+};
+
+
 /*! \brief Allocates only if requested buffer size was not allocated previously.
  *
  *  This pool is useful for functions, which require temporary GPU memory. The
