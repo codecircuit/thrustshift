@@ -9,6 +9,30 @@
 
 namespace thrustshift {
 
+namespace detail {
+
+//! Allocate without initialization
+template <typename T, typename A, typename SizeC>
+T* allocate_array(A& alloc, SizeC sizeC) {
+	return std::allocator_traits<A>::allocate(alloc, std::size_t(sizeC));
+}
+
+template <typename ArrayT, typename A>
+std::enable_if_t<
+    sysmakeshift::detail::extent_only<ArrayT>::value == 0,
+    std::unique_ptr<ArrayT, sysmakeshift::allocator_deleter<ArrayT, A>>>
+allocate_unique(A alloc, std::size_t size) {
+	using T = std::remove_cv_t<sysmakeshift::detail::remove_extent_only_t<ArrayT>>;
+	static_assert(
+	    std::is_same<typename std::allocator_traits<A>::value_type, T>::value,
+	    "allocator has mismatching value_type");
+
+	T* ptr = detail::allocate_array<T>(alloc, size);
+	return {ptr, {std::move(alloc), size}};
+}
+
+} // namespace detail
+
 /*! \brief Container which provides memory with a custom allocator.
  *
  *  Useful in combination with memory which is not accessible on the
@@ -20,7 +44,7 @@ class not_a_vector {
 
    public:
 	not_a_vector(std::size_t size, Allocator& alloc)
-	    : ptr_(sysmakeshift::allocate_unique<T[]>(alloc, size)), size_(size) {
+	    : ptr_(detail::allocate_unique<T[]>(alloc, size)), size_(size) {
 	}
 
 	gsl_lite::span<T> to_span() const {
