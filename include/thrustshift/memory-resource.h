@@ -148,6 +148,9 @@ class delayed_pool_type : public std::pmr::memory_resource {
 
    private:
 	void* do_allocate(size_t bytes, size_t alignment) override {
+		if (bytes == 0) {
+			return nullptr;
+		}
 		if (auto it = book_.find(bytes); it != book_.end()) {
 			for (auto& page_item : it->second) {
 				if (!page_item.allocated) {
