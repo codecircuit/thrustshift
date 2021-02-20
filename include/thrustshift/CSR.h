@@ -20,7 +20,7 @@ class CSR {
 	using storage_index = IndexType;
 	using index_type = IndexType;
 
-	CSR() : row_ptrs_(1, 0, &default_resource_) {}
+	CSR() : row_ptrs_(1, 0, &default_resource_), num_cols_(0) {}
 
 	template <class DataRange,
 	          class ColIndRange,
