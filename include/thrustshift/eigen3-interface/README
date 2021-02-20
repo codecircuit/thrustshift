@@ -1,0 +1,4 @@
+Functions in this folder support the interoperability between
+thrustshift and Eigen3. The user is responsible to include
+Eigen3 correctly. Thrustshift is not exporting this as a
+separate dependency.
