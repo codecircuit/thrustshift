@@ -102,11 +102,11 @@ class CSR {
 };
 
 template <typename DataType, typename IndexType>
-class CSR_view_type {
+class CSR_view {
 
    public:
 	template <typename OtherDataType, typename OtherIndexType>
-	CSR_view_type(CSR<OtherDataType, OtherIndexType>& owner)
+	CSR_view(CSR<OtherDataType, OtherIndexType>& owner)
 	    : values(owner.values()),
 	      col_indices(owner.col_indices()),
 	      row_ptrs(owner.row_ptrs()),
@@ -114,14 +114,14 @@ class CSR_view_type {
 	}
 
 	template <typename OtherDataType, typename OtherIndexType>
-	CSR_view_type(const CSR<OtherDataType, OtherIndexType>& owner)
+	CSR_view(const CSR<OtherDataType, OtherIndexType>& owner)
 	    : values(owner.values()),
 	      col_indices(owner.col_indices()),
 	      row_ptrs(owner.row_ptrs()),
 	      num_cols(owner.num_cols()) {
 	}
 
-	CSR_view_type(const CSR_view_type& other) = default;
+	CSR_view(const CSR_view& other) = default;
 
 	gsl_lite::span<DataType> values;
 	gsl_lite::span<IndexType> col_indices;
