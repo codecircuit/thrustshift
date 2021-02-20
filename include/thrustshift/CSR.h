@@ -15,9 +15,7 @@ class CSR {
 	pmr::managed_resource_type default_resource_;
 
    public:
-	using data_type = DataType;
 	using value_type = DataType;
-	using storage_index = IndexType;
 	using index_type = IndexType;
 
 	CSR() : row_ptrs_(1, 0, &default_resource_), num_cols_(0) {}
