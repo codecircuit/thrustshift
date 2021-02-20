@@ -1,15 +1,11 @@
 #pragma once
 
-#include <fstream>
-#include <iostream>
 #include <memory_resource>
-#include <string>
 #include <vector>
 
 #include <gsl-lite/gsl-lite.hpp>
 
 #include <thrustshift/memory-resource.h>
-#include <thrustshift/not-a-vector.h>
 
 namespace thrustshift {
 
