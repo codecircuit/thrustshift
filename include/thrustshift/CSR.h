@@ -5,6 +5,8 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
+#include <cuda/define_specifiers.hpp>
+
 #include <thrustshift/memory-resource.h>
 
 namespace thrustshift {
@@ -53,7 +55,6 @@ class CSR {
 	}
 
 	CSR(const CSR& other) = default;
-
 	CSR(CSR&& other) = default;
 
 	gsl_lite::span<DataType> values() {
@@ -101,26 +102,60 @@ class CSR_view {
    public:
 	template <typename OtherDataType, typename OtherIndexType>
 	CSR_view(CSR<OtherDataType, OtherIndexType>& owner)
-	    : values(owner.values()),
-	      col_indices(owner.col_indices()),
-	      row_ptrs(owner.row_ptrs()),
-	      num_cols(owner.num_cols()) {
+	    : values_(owner.values()),
+	      col_indices_(owner.col_indices()),
+	      row_ptrs_(owner.row_ptrs()),
+	      num_cols_(owner.num_cols()) {
 	}
 
 	template <typename OtherDataType, typename OtherIndexType>
 	CSR_view(const CSR<OtherDataType, OtherIndexType>& owner)
-	    : values(owner.values()),
-	      col_indices(owner.col_indices()),
-	      row_ptrs(owner.row_ptrs()),
-	      num_cols(owner.num_cols()) {
+	    : values_(owner.values()),
+	      col_indices_(owner.col_indices()),
+	      row_ptrs_(owner.row_ptrs()),
+	      num_cols_(owner.num_cols()) {
 	}
 
 	CSR_view(const CSR_view& other) = default;
+	CSR_view(CSR_view&& other) = default;
 
-	gsl_lite::span<DataType> values;
-	gsl_lite::span<IndexType> col_indices;
-	gsl_lite::span<IndexType> row_ptrs;
-	size_t num_cols;
+	CUDA_FHD gsl_lite::span<DataType> values() {
+		return gsl_lite::make_span(values_);
+	}
+
+	CUDA_FHD gsl_lite::span<const DataType> values() const {
+		return gsl_lite::make_span(values_);
+	}
+
+	CUDA_FHD gsl_lite::span<IndexType> col_indices() {
+		return gsl_lite::make_span(col_indices_);
+	}
+
+	CUDA_FHD gsl_lite::span<const IndexType> col_indices() const {
+		return gsl_lite::make_span(col_indices_);
+	}
+
+	CUDA_FHD gsl_lite::span<IndexType> row_ptrs() {
+		return gsl_lite::make_span(row_ptrs_);
+	}
+
+	CUDA_FHD gsl_lite::span<const IndexType> row_ptrs() const {
+		return gsl_lite::make_span(row_ptrs_);
+	}
+
+	CUDA_FHD size_t num_rows() const {
+		return row_ptrs_.size() - 1;
+	}
+
+	CUDA_FHD size_t num_cols() const {
+		return num_cols_;
+	}
+
+   private:
+	gsl_lite::span<DataType> values_;
+	gsl_lite::span<IndexType> col_indices_;
+	gsl_lite::span<IndexType> row_ptrs_;
+	size_t num_cols_;
 };
 
 } // namespace thrustshift
