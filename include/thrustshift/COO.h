@@ -31,6 +31,23 @@ class COO {
 	COO() : num_cols_(0), num_rows_(0) {
 	}
 
+	template <class MemoryResource>
+	COO(size_t nnz,
+	    size_t num_rows,
+	    size_t num_cols,
+	    MemoryResource& memory_resource)
+	    : values_(nnz, &memory_resource),
+	      row_indices_(nnz, &memory_resource),
+	      col_indices_(nnz, &memory_resource),
+	      num_rows_(num_rows),
+	      num_cols_(num_cols),
+	      storage_order_(storage_order_t::none) {
+	}
+
+	COO(size_t nnz, size_t num_rows, size_t num_cols)
+	    : COO(nnz, num_rows, num_cols, default_resource_) {
+	}
+
 	template <class DataRange,
 	          class RowIndRange,
 	          class ColIndRange,
@@ -69,57 +86,32 @@ class COO {
 	          default_resource_) {
 	}
 
-	template <class CSR, class MemoryResource>
-	COO(CSR&& csr_mtx, MemoryResource& memory_resource)
-	    : values_(csr_mtx.values().begin(),
-	              csr_mtx.values().end(),
-	              &memory_resource),
-	      row_indices_(csr_mtx.col_indices().size(), &memory_resource),
-	      col_indices_(csr_mtx.col_indices().begin(),
-	                   csr_mtx.col_indices().end(),
-	                   &memory_resource),
-	      num_rows_(csr_mtx.num_rows()),
-	      num_cols_(csr_mtx.num_cols()),
-	      storage_order_(storage_order_t::none) {
-
-		for (size_t row_id = 0; row_id < csr_mtx.row_ptrs().size() - 1;
-		     ++row_id) {
-			// nns = not null space
-			for (size_t nns_id = csr_mtx.row_ptrs()[row_id];
-			     nns_id < csr_mtx.row_ptrs()[row_id + 1];
-			     ++nns_id) {
-				row_indices_[nns_id] = row_id;
-			}
-		}
-	}
-
 	COO(const COO& other) = default;
 
 	COO(COO&& other) = default;
 
 	void change_storage_order(storage_order_t new_storage_order) {
-		IndexType* keys_first;
-		IndexType* keys_last;
-		IndexType* other_indices_start;
+		IndexType* primary_keys_first;
+		IndexType* secondary_keys_first;
 
 		switch (new_storage_order) {
 			case storage_order_t::row_major:
-				keys_first = row_indices_.data();
-				keys_last = row_indices_.data() + row_indices_.size();
-				other_indices_start = col_indices_.data();
+				primary_keys_first = row_indices_.data();
+				secondary_keys_first = col_indices_.data();
 				break;
 			case storage_order_t::col_major:
-				keys_first = col_indices_.data();
-				keys_last = col_indices_.data() + col_indices_.size();
-				other_indices_start = row_indices_.data();
+				primary_keys_first = col_indices_.data();
+				secondary_keys_first = row_indices_.data();
 				break;
 			case storage_order_t::none:
 				return;
 		}
 
-		auto value_it = thrust::make_zip_iterator(
-		    thrust::make_tuple(other_indices_start, values_.data()));
-		thrust::sort_by_key(thrust::cuda::par, keys_first, keys_last, value_it);
+		// Thrust's relational operators are overloaded for thrust::pair.
+		// This ensures that we sort with respect to the second key if the first key is equal.
+		auto key_it = thrust::make_zip_iterator(
+		    thrust::make_tuple(primary_keys_first, secondary_keys_first));
+		thrust::sort_by_key(thrust::cuda::par, key_it, key_it + values_.size(), values_.data());
 		storage_order_ = new_storage_order;
 	}
 
@@ -185,13 +177,16 @@ class COO {
 
 		if (indices.size() > 0) {
 			thrustshift::managed_vector<index_type> ptrs(size + 1, -1);
-			for (int nns_id = gsl_lite::narrow<int>(indices.size()) - 1; nns_id >= 0; --nns_id) {
+			for (int nns_id = gsl_lite::narrow<int>(indices.size()) - 1;
+			     nns_id >= 0;
+			     --nns_id) {
 				ptrs[indices[nns_id]] = nns_id;
 			}
 			ptrs[0] = 0;
 			ptrs.back() = indices.size();
 			index_type k = indices.size();
-			for (int id = gsl_lite::narrow<int>(ptrs.size()) - 1; id > 0; --id) {
+			for (int id = gsl_lite::narrow<int>(ptrs.size()) - 1; id > 0;
+			     --id) {
 				if (ptrs[id] == -1) {
 					ptrs[id] = k;
 				}

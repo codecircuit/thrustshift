@@ -11,16 +11,29 @@
 
 namespace thrustshift {
 
+//! Col indices must be ordered
 template <typename DataType, typename IndexType>
 class CSR {
-   private:
-	pmr::managed_resource_type default_resource_;
-
    public:
 	using value_type = DataType;
 	using index_type = IndexType;
 
-	CSR() : row_ptrs_(1, 0, &default_resource_), num_cols_(0) {}
+   private:
+	pmr::managed_resource_type default_resource_;
+
+	bool cols_are_sorted() {
+		for (size_t row_id = 0; row_id < num_rows_; ++row_id) {
+			if (!std::is_sorted(col_indices_.begin() + row_ptrs_[row_id],
+			                    col_indices_.begin() + row_ptrs_[row_id + 1])) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+   public:
+	CSR() : row_ptrs_(1, 0, &default_resource_), num_cols_(0) {
+	}
 
 	template <class DataRange,
 	          class ColIndRange,
@@ -40,6 +53,7 @@ class CSR {
 		gsl_Expects(values.size() == col_indices.size());
 		gsl_Expects(row_ptrs.size() > 0);
 		gsl_Expects(row_ptrs[0] == 0);
+		gsl_ExpectsAudit(cols_are_sorted());
 	}
 
 	template <class DataRange, class ColIndRange, class RowPtrsRange>
