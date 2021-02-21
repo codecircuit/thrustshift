@@ -12,16 +12,16 @@ namespace thrustshift {
 
 namespace pmr {
 
-//! Unified CUDA Memory Resource
+//! Unified CUDA Memory Resource. Buffers cannet be deallocated partially. Alignment is ignored.
 class managed_resource_type : public std::pmr::memory_resource {
-	void* do_allocate(std::size_t bytes, std::size_t alignment) override {
+	void* do_allocate(std::size_t bytes, [[maybe_unused]] std::size_t alignment) override {
 		auto region = cuda::memory::managed::detail::allocate(bytes);
 		return region.get();
 	}
 
 	void do_deallocate(void* p,
-	                   std::size_t bytes,
-	                   std::size_t alignment) override {
+	                   [[maybe_unused]] std::size_t bytes,
+	                   [[maybe_unused]] std::size_t alignment) override {
 		cuda::memory::managed::detail::free(p);
 	}
 
@@ -30,16 +30,16 @@ class managed_resource_type : public std::pmr::memory_resource {
 	}
 };
 
-//! Device CUDA Memory Resource
+//! Device CUDA Memory Resource. Buffers cannot be deallocated partially. Alignment is ignored.
 class device_resource_type : public std::pmr::memory_resource {
-	void* do_allocate(std::size_t bytes, std::size_t alignment) override {
+	void* do_allocate(std::size_t bytes, [[maybe_unused]] std::size_t alignment) override {
 		auto region = cuda::memory::device::detail::allocate(bytes);
 		return region.get();
 	}
 
 	void do_deallocate(void* p,
-	                   std::size_t bytes,
-	                   std::size_t alignment) override {
+	                   [[maybe_unused]] std::size_t bytes,
+	                   [[maybe_unused]] std::size_t alignment) override {
 		cuda::memory::device::free(p);
 	}
 
