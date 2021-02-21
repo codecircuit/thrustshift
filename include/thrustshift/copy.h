@@ -20,13 +20,17 @@ __global__ void copy(gsl_lite::span<const SrcT> src, gsl_lite::span<DstT> dst) {
 
 } // namespace kernel
 
+namespace async {
+
 //! thrust uses sometimes a cudaMemcpyAsync instead of a copy kernel
 template <class SrcRange, class DstRange>
-void enqueue_copy(cuda::stream_t& stream, SrcRange&& src, DstRange&& dst) {
+void copy(cuda::stream_t& stream, SrcRange&& src, DstRange&& dst) {
 	gsl_Expects(src.size() == dst.size());
 
-	using src_value_type = typename std::remove_reference<SrcRange>::type::value_type;
-	using dst_value_type = typename std::remove_reference<DstRange>::type::value_type;
+	using src_value_type =
+	    typename std::remove_reference<SrcRange>::type::value_type;
+	using dst_value_type =
+	    typename std::remove_reference<DstRange>::type::value_type;
 
 	constexpr cuda::grid::block_dimension_t block_dim = 128;
 	const cuda::grid::dimension_t grid_dim =
@@ -35,5 +39,7 @@ void enqueue_copy(cuda::stream_t& stream, SrcRange&& src, DstRange&& dst) {
 	auto k = kernel::copy<src_value_type, dst_value_type>;
 	cuda::enqueue_launch(k, stream, c, src, dst);
 }
+
+} // namespace async
 
 } // namespace thrustshift
