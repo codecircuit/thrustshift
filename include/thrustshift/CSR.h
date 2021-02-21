@@ -22,7 +22,7 @@ class CSR {
 	pmr::managed_resource_type default_resource_;
 
 	bool cols_are_sorted() {
-		for (size_t row_id = 0; row_id < num_rows_; ++row_id) {
+		for (size_t row_id = 0; row_id < this->num_rows(); ++row_id) {
 			if (!std::is_sorted(col_indices_.begin() + row_ptrs_[row_id],
 			                    col_indices_.begin() + row_ptrs_[row_id + 1])) {
 				return false;
@@ -134,27 +134,27 @@ class CSR_view {
 	CSR_view(CSR_view&& other) = default;
 
 	CUDA_FHD gsl_lite::span<DataType> values() {
-		return gsl_lite::make_span(values_);
+		return values_;
 	}
 
 	CUDA_FHD gsl_lite::span<const DataType> values() const {
-		return gsl_lite::make_span(values_);
+		return values_;
 	}
 
 	CUDA_FHD gsl_lite::span<IndexType> col_indices() {
-		return gsl_lite::make_span(col_indices_);
+		return col_indices_;
 	}
 
 	CUDA_FHD gsl_lite::span<const IndexType> col_indices() const {
-		return gsl_lite::make_span(col_indices_);
+		return col_indices_;
 	}
 
 	CUDA_FHD gsl_lite::span<IndexType> row_ptrs() {
-		return gsl_lite::make_span(row_ptrs_);
+		return row_ptrs_;
 	}
 
 	CUDA_FHD gsl_lite::span<const IndexType> row_ptrs() const {
-		return gsl_lite::make_span(row_ptrs_);
+		return row_ptrs_;
 	}
 
 	CUDA_FHD size_t num_rows() const {

@@ -7,6 +7,7 @@ add_executable(
   test-thrustshift
   "main.cpp"
   "test-coo.cu"
+  "test-csr.cu"
 )
 
 include(CMakeshift/TargetCompileSettings)

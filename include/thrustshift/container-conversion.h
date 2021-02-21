@@ -2,6 +2,7 @@
 
 #include <thrustshift/COO.h>
 #include <thrustshift/CSR.h>
+#include <thrustshift/copy.h>
 
 namespace thrustshift {
 
@@ -34,8 +35,7 @@ CSR_C coo2csr(COO_C&& coo_, MemoryResource& memory_resource) {
 
 	if (coo_.get_storage_order() != storage_order_t::row_major) {
 		// Here we copy the matrix because we change the storage type
-		typename std::remove_cv<std::remove_reference<COO_C>::type>::type coo(
-		    std::forward<COO_C>(coo_));
+		typename std::remove_cv<typename std::remove_reference<COO_C>::type>::type  coo(std::forward<COO_C>(coo_));
 		coo.change_storage_order(storage_order_t::row_major);
 		auto row_ptrs = coo.get_ptrs();
 		return CSR_C(

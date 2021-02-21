@@ -235,27 +235,27 @@ class COO_view {
 	COO_view(const COO_view& other) = default;
 
 	CUDA_FHD gsl_lite::span<DataType> values() {
-		return gsl_lite::make_span(values_);
+		return values_;
 	}
 
 	CUDA_FHD gsl_lite::span<const DataType> values() const {
-		return gsl_lite::make_span(values_);
+		return values_;
 	}
 
 	CUDA_FHD gsl_lite::span<IndexType> row_indices() {
-		return gsl_lite::make_span(row_indices_);
+		return row_indices_;
 	}
 
 	CUDA_FHD gsl_lite::span<const IndexType> row_indices() const {
-		return gsl_lite::make_span(row_indices_);
+		return row_indices_;
 	}
 
 	CUDA_FHD gsl_lite::span<IndexType> col_indices() {
-		return gsl_lite::make_span(col_indices_);
+		return col_indices_;
 	}
 
 	CUDA_FHD gsl_lite::span<const IndexType> col_indices() const {
-		return gsl_lite::make_span(col_indices_);
+		return col_indices_;
 	}
 
 	CUDA_FHD size_t num_rows() const {
