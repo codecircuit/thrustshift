@@ -124,6 +124,10 @@ class COO {
 		IndexType* primary_keys_first;
 		IndexType* secondary_keys_first;
 
+		if (new_storage_order == storage_order_) {
+			return;
+		}
+
 		switch (new_storage_order) {
 			case storage_order_t::row_major:
 				primary_keys_first = row_indices_.data();
