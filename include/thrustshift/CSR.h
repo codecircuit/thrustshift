@@ -68,7 +68,15 @@ class CSR {
 	          default_resource_) {
 	}
 
-	CSR(const CSR& other) = default;
+	// The copy constructor is declared explicitly to ensure
+	// managed memory is used per default.
+	CSR(const CSR& other)
+	    : CSR(other.values(),
+	          other.col_indices(),
+	          other.row_ptrs(),
+	          other.num_cols()) {
+	}
+
 	CSR(CSR&& other) = default;
 
 	gsl_lite::span<DataType> values() {

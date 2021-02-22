@@ -57,6 +57,7 @@ class COO {
 	    ColIndRange&& col_indices,
 	    size_t num_rows,
 	    size_t num_cols,
+	    storage_order_t storage_order,
 	    MemoryResource& memory_resource)
 	    : values_(values.begin(), values.end(), &memory_resource),
 	      row_indices_(row_indices.begin(),
@@ -67,9 +68,28 @@ class COO {
 	                   &memory_resource),
 	      num_rows_(num_rows),
 	      num_cols_(num_cols),
-	      storage_order_(storage_order_t::none) {
+	      storage_order_(storage_order) {
 		gsl_Expects(values.size() == row_indices.size());
 		gsl_Expects(values.size() == col_indices.size());
+	}
+
+	template <class DataRange,
+	          class RowIndRange,
+	          class ColIndRange,
+	          class MemoryResource>
+	COO(DataRange&& values,
+	    RowIndRange&& row_indices,
+	    ColIndRange&& col_indices,
+	    size_t num_rows,
+	    size_t num_cols,
+	    MemoryResource& memory_resource)
+	    : COO(std::forward<DataRange>(values),
+	          std::forward<RowIndRange>(row_indices),
+	          std::forward<ColIndRange>(col_indices),
+	          num_rows,
+	          num_cols,
+	          storage_order_t::none,
+	          memory_resource) {
 	}
 
 	template <class DataRange, class ColIndRange, class RowIndRange>
@@ -86,7 +106,17 @@ class COO {
 	          default_resource_) {
 	}
 
-	COO(const COO& other) = default;
+	// The copy constructor is declared explicitly to ensure
+	// managed memory is used per default.
+	COO(const COO& other)
+	    : COO(other.values(),
+	          other.row_indices(),
+	          other.col_indices(),
+	          other.num_rows(),
+	          other.num_cols(),
+	          other.get_storage_order(),
+	          default_resource_) {
+	}
 
 	COO(COO&& other) = default;
 
@@ -111,7 +141,8 @@ class COO {
 		// This ensures that we sort with respect to the second key if the first key is equal.
 		auto key_it = thrust::make_zip_iterator(
 		    thrust::make_tuple(primary_keys_first, secondary_keys_first));
-		thrust::sort_by_key(thrust::cuda::par, key_it, key_it + values_.size(), values_.data());
+		thrust::sort_by_key(
+		    thrust::cuda::par, key_it, key_it + values_.size(), values_.data());
 		storage_order_ = new_storage_order;
 	}
 
