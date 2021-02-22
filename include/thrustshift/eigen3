@@ -1,1 +1,2 @@
 #include <thrustshift/eigen3-interface/CSR.h>
+#include <thrustshift/eigen3-interface/COO.h>
