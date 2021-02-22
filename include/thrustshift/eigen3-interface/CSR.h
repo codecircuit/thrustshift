@@ -13,6 +13,7 @@ namespace thrustshift {
 
 namespace eigen {
 
+//! Return a CSR matrix with the default memory resource of the CSR class
 template <class EigenSparseMatrix>
 auto sparse_mtx2csr(EigenSparseMatrix&& m_) {
 
@@ -20,6 +21,7 @@ auto sparse_mtx2csr(EigenSparseMatrix&& m_) {
 	    typename std::remove_reference<EigenSparseMatrix>::type::value_type;
 	using StorageIndex =
 	    typename std::remove_reference<EigenSparseMatrix>::type::StorageIndex;
+	// Create copy because we might modify the container with `makeCompressed`
 	Eigen::SparseMatrix<DataType, Eigen::RowMajor, StorageIndex> m = m_;
 	m.makeCompressed();
 	auto m_data = m.data();

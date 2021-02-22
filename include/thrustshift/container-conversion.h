@@ -6,6 +6,18 @@
 
 namespace thrustshift {
 
+/*! \brief Convert a CSR container to a COO container
+ *
+ *  Usage example:
+ *
+ *  ```
+ *  auto coo = csr2coo<thrustshift::COO<double, float>>(csr_matrix, memory_resource);
+ *  ```
+ *
+ *  The template parameter is not deduced implicitly because type conversions are
+ *  allowed. E.g., you can create a double precision COO matrix from a single
+ *  precision CSR matrix.
+ */
 template <class COO_C, class CSR_C, class MemoryResource>
 COO_C csr2coo(CSR_C&& csr, MemoryResource& memory_resource) {
 
@@ -30,6 +42,18 @@ COO_C csr2coo(CSR_C&& csr, MemoryResource& memory_resource) {
 	return coo;
 }
 
+/*! \brief Convert a COO container to a CSR container
+ *
+ *  Usage example:
+ *
+ *  ```
+ *  auto csr = coo2csr<thrustshift::CSR<double, float>>(coo_matrix, memory_resource);
+ *  ```
+ *
+ *  The template parameter is not deduced implicitly because type conversions are
+ *  allowed. E.g., you can create a double precision CSR matrix from a single
+ *  precision COO matrix.
+ */
 template <class CSR_C, class COO_C, class MemoryResource>
 CSR_C coo2csr(COO_C&& coo_, MemoryResource& memory_resource) {
 
