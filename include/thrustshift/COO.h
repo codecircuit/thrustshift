@@ -312,4 +312,54 @@ class COO_view {
 	size_t num_cols_;
 };
 
+namespace kernel {
+
+template <typename T, typename T0, typename I0, typename T1, typename I1>
+__global__ void diagmm(gsl_lite::span<const T> diag,
+                       COO_view<const T0, const I0> mtx,
+                       COO_view<T1, I1> result_mtx) {
+
+	const auto nnz = mtx.values().size();
+	const auto gtid = threadIdx.x + blockIdx.x * blockDim.x;
+	if (gtid < nnz) {
+		result_mtx.values()[gtid] =
+		    diag[mtx.row_indices()[gtid]] * mtx.values()[gtid];
+	}
+}
+
+} // namespace kernel
+
+namespace async {
+
+//! Calculate the product `result_coo_mtx = (diag_mtx * coo_mtx)`
+//! result_coo_mtx can be equal to coo_mtx. Then the multiplication is in place.
+template <class Range, class COO_C0, class COO_C1>
+void diagmm(cuda::stream_t& stream, Range&& diag_mtx, COO_C0&& coo_mtx, COO_C1&& result_coo_mtx) {
+
+	gsl_Expects(coo_mtx.values().size() == result_coo_mtx.values().size());
+	gsl_Expects(coo_mtx.num_cols() == result_coo_mtx.num_cols());
+	gsl_Expects(coo_mtx.num_rows() == result_coo_mtx.num_rows());
+	gsl_Expects(diag_mtx.size() == coo_mtx.num_rows());
+	// Only square matrices are allowed
+	gsl_Expects(coo_mtx.num_rows() == coo_mtx.num_cols());
+
+	using RangeT = typename std::remove_reference<Range>::type::value_type;
+	using COO_T0 = typename std::remove_reference<COO_C0>::type::value_type;
+	using COO_I0 = typename std::remove_reference<COO_C0>::type::index_type;
+	using COO_T1 = typename std::remove_reference<COO_C1>::type::value_type;
+	using COO_I1 = typename std::remove_reference<COO_C1>::type::index_type;
+
+	const auto nnz = coo_mtx.values().size();
+	constexpr cuda::grid::block_dimension_t block_dim = 128;
+	const cuda::grid::dimension_t grid_dim = (nnz + block_dim - 1) / block_dim;
+	cuda::enqueue_launch(kernel::diagmm<RangeT, COO_T0, COO_I0, COO_T1, COO_I1>,
+	                     stream,
+	                     cuda::make_launch_config(grid_dim, block_dim),
+	                     diag_mtx,
+	                     coo_mtx,
+	                     result_coo_mtx);
+}
+
+} // namespace async
+
 } // namespace thrustshift
