@@ -122,6 +122,10 @@ template <typename DataType, typename IndexType>
 class CSR_view {
 
    public:
+
+	using value_type = DataType;
+	using index_type = IndexType;
+
 	template <typename OtherDataType, typename OtherIndexType>
 	CSR_view(CSR<OtherDataType, OtherIndexType>& owner)
 	    : values_(owner.values()),

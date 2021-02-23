@@ -249,6 +249,9 @@ template <typename DataType, typename IndexType>
 class COO_view {
 
    public:
+	using value_type = DataType;
+	using index_type = IndexType;
+
 	template <typename OtherDataType, typename OtherIndexType>
 	COO_view(COO<OtherDataType, OtherIndexType>& owner)
 	    : values_(owner.values()),
