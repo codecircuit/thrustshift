@@ -19,10 +19,9 @@ namespace thrustshift {
 
 enum class storage_order_t { row_major, col_major, none };
 
+
 template <typename DataType, typename IndexType>
 class COO {
-   private:
-	pmr::managed_resource_type default_resource_;
 
    public:
 	using value_type = DataType;
@@ -45,7 +44,7 @@ class COO {
 	}
 
 	COO(size_t nnz, size_t num_rows, size_t num_cols)
-	    : COO(nnz, num_rows, num_cols, default_resource_) {
+	    : COO(nnz, num_rows, num_cols, pmr::default_resource) {
 	}
 
 	template <class DataRange,
@@ -103,7 +102,7 @@ class COO {
 	          std::forward<ColIndRange>(col_indices),
 	          num_rows,
 	          num_cols,
-	          default_resource_) {
+	          pmr::default_resource) {
 	}
 
 	// The copy constructor is declared explicitly to ensure
@@ -115,7 +114,7 @@ class COO {
 	          other.num_rows(),
 	          other.num_cols(),
 	          other.get_storage_order(),
-	          default_resource_) {
+	          pmr::default_resource) {
 	}
 
 	COO(COO&& other) = default;

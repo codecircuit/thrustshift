@@ -19,7 +19,6 @@ class CSR {
 	using index_type = IndexType;
 
    private:
-	pmr::managed_resource_type default_resource_;
 
 	bool cols_are_sorted() {
 		for (size_t row_id = 0; row_id < this->num_rows(); ++row_id) {
@@ -32,7 +31,7 @@ class CSR {
 	}
 
    public:
-	CSR() : row_ptrs_(1, 0, &default_resource_), num_cols_(0) {
+	CSR() : row_ptrs_(1, 0, &pmr::default_resource), num_cols_(0) {
 	}
 
 	template <class DataRange,
@@ -65,7 +64,7 @@ class CSR {
 	          std::forward<ColIndRange>(col_indices),
 	          std::forward<RowPtrsRange>(row_ptrs),
 	          num_cols,
-	          default_resource_) {
+	          pmr::default_resource) {
 	}
 
 	// The copy constructor is declared explicitly to ensure

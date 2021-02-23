@@ -8,6 +8,8 @@
 
 #include <thrustshift/CSR.h>
 #include <thrustshift/managed-vector.h>
+#include <thrustshift/memory-resource.h>
+#include <thrustshift/container-conversion.h>
 
 namespace thrustshift {
 
@@ -36,7 +38,24 @@ auto sparse_mtx2csr(EigenSparseMatrix&& m_) {
 	managed_vector<StorageIndex> seq_JA(JA, JA + nnz);
 	managed_vector<StorageIndex> seq_IA(IA, IA + rows + 1);
 
-	return CSR<DataType,StorageIndex>(seq_A, seq_JA, seq_IA, gsl_lite::narrow<size_t>(m.cols()));
+	return CSR<DataType, StorageIndex>(
+	    seq_A, seq_JA, seq_IA, gsl_lite::narrow<size_t>(m.cols()));
+}
+
+// Forward declaration to avoid co-dependent headers
+template <class EigenSparseMatrix, class COO_C>
+EigenSparseMatrix coo2sparse_mtx(COO_C&& coo);
+
+template <class EigenSparseMatrix, class CSR_C>
+EigenSparseMatrix csr2sparse_mtx(CSR_C&& csr) {
+
+	using DataType =
+	    typename std::remove_reference<EigenSparseMatrix>::type::value_type;
+	using StorageIndex =
+	    typename std::remove_reference<EigenSparseMatrix>::type::StorageIndex;
+
+	return coo2sparse_mtx<EigenSparseMatrix>(csr2coo<thrustshift::COO<DataType, StorageIndex>>(
+	    std::forward<CSR_C>(csr), pmr::default_resource));
 }
 
 } // namespace eigen

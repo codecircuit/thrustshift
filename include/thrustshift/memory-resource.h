@@ -196,6 +196,8 @@ class delayed_pool_type : public std::pmr::memory_resource {
 	std::map<size_t, std::vector<page_item_type>> book_;
 };
 
+static managed_resource_type default_resource;
+
 } // namespace pmr
 
 } // namespace thrustshift
