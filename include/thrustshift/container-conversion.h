@@ -30,7 +30,7 @@ COO_C csr2coo(CSR_C&& csr, MemoryResource& memory_resource) {
 
 	for (size_t row_id = 0; row_id < csr.row_ptrs().size() - 1; ++row_id) {
 		// nns = not null space
-		for (size_t nns_id = csr.row_ptrs()[row_id];
+		for (int nns_id = csr.row_ptrs()[row_id];
 		     nns_id < csr.row_ptrs()[row_id + 1];
 		     ++nns_id) {
 			coo.row_indices()[nns_id] = row_id;
