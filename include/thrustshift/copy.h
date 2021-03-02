@@ -27,6 +27,10 @@ template <class SrcRange, class DstRange>
 void copy(cuda::stream_t& stream, SrcRange&& src, DstRange&& dst) {
 	gsl_Expects(src.size() == dst.size());
 
+	if (src.empty()) {
+		return;
+	}
+
 	using src_value_type =
 	    typename std::remove_reference<SrcRange>::type::value_type;
 	using dst_value_type =
