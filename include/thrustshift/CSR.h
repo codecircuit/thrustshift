@@ -19,7 +19,6 @@ class CSR {
 	using index_type = IndexType;
 
    private:
-
 	bool cols_are_sorted() {
 		for (size_t row_id = 0; row_id < this->num_rows(); ++row_id) {
 			if (!std::is_sorted(col_indices_.begin() + row_ptrs_[row_id],
@@ -110,6 +109,76 @@ class CSR {
 		return num_cols_;
 	}
 
+	/*! \brief Add additional elements to each row of the matrix.
+	 *
+	 *  A row might already have the maximum number of element. Therefore
+	 *  not every row might be extended by exactly `num_max_additional_elements_per_row`.
+	 *
+	 */
+	void extend_rows(int num_max_additional_elements_per_row,
+	                 DataType value = 0) {
+		std::vector<DataType> tmp_values(values_.begin(), values_.end());
+		std::vector<IndexType> tmp_col_indices(col_indices_.begin(),
+		                                       col_indices_.end());
+		size_t num_additional_elements = 0;
+		const int nc = gsl_lite::narrow<int>(num_cols());
+		auto get_num_additional_elements_per_row = [&](size_t row_id) {
+			const int num_elements_curr_row =
+			    row_ptrs_[row_id + 1] - row_ptrs_[row_id];
+			return std::max(std::min(num_max_additional_elements_per_row,
+			                         nc - num_elements_curr_row),
+			                0);
+		};
+		for (size_t row_id = 0; row_id < num_rows(); ++row_id) {
+			num_additional_elements +=
+			    get_num_additional_elements_per_row(row_id);
+		}
+
+		const size_t new_nnz = values_.size() + num_additional_elements;
+		values_.resize(new_nnz);
+		col_indices_.resize(new_nnz);
+		int nns_offset = 0;
+		for (size_t row_id = 0; row_id < num_rows(); ++row_id) {
+			const int num_additional_elements_curr_row =
+			    get_num_additional_elements_per_row(row_id);
+			int nns_id = row_ptrs_[row_id];
+			const int nns_end = row_ptrs_[row_id + 1];
+			const int nnz_curr_row = nns_end - nns_id;
+			int curr_col_id = 0;
+			int other_col_id = nns_end - nns_id == 0
+			                       ? std::numeric_limits<int>::max()
+			                       : tmp_col_indices[nns_id];
+			int num_added_elements = 0;
+			for (int new_nns_id = nns_offset;
+			     new_nns_id < nns_offset + num_additional_elements_curr_row +
+			                      row_ptrs_[row_id + 1] - row_ptrs_[row_id];
+			     ++new_nns_id) {
+				if (curr_col_id < other_col_id &&
+				    num_added_elements < num_additional_elements_curr_row) {
+					values_[new_nns_id] = value;
+					col_indices_[new_nns_id] = curr_col_id;
+					++curr_col_id;
+					++num_added_elements;
+				}
+				else {
+					values_[new_nns_id] = tmp_values[nns_id];
+					col_indices_[new_nns_id] = other_col_id;
+					curr_col_id = other_col_id + 1;
+					++nns_id;
+					// In the last for-loop iteration we do not need to update for the next iteration any more
+					if (new_nns_id <
+					    nns_offset + num_additional_elements_curr_row +
+					        row_ptrs_[row_id + 1] - row_ptrs_[row_id] - 1) {
+						other_col_id = tmp_col_indices[nns_id];
+					}
+				}
+			}
+			row_ptrs_[row_id] = nns_offset;
+			nns_offset += nnz_curr_row + num_additional_elements_curr_row;
+		}
+		row_ptrs_.back() = values_.size();
+	}
+
    private:
 	std::pmr::vector<DataType> values_;
 	std::pmr::vector<IndexType> col_indices_;
@@ -121,7 +190,6 @@ template <typename DataType, typename IndexType>
 class CSR_view {
 
    public:
-
 	using value_type = DataType;
 	using index_type = IndexType;
 

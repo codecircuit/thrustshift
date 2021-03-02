@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.18)
 
 find_package(CMakeshift REQUIRED)
 find_package(Boost REQUIRED COMPONENTS unit_test_framework filesystem)
+find_package(Eigen3 REQUIRED)
 
 add_executable(
   test-thrustshift
@@ -16,7 +17,7 @@ cmakeshift_target_compile_settings(
   PRIVATE
   default
   diagnostics
-  $<$<CONFIG:Debug>:runtime-checks>
+  #  $<$<CONFIG:Debug>:runtime-checks>
 )
 
 target_compile_features(test-thrustshift PRIVATE cuda_std_17)
@@ -33,7 +34,7 @@ endif()
 
 target_link_libraries(
   test-thrustshift
-  PRIVATE Boost::unit_test_framework Boost::filesystem thrustshift
+  PRIVATE Boost::unit_test_framework Boost::filesystem thrustshift Eigen3::Eigen
 )
 
 add_test(NAME "test-thrustshift" COMMAND test-thrustshift)
