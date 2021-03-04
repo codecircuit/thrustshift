@@ -77,6 +77,8 @@ class CSR {
 
 	CSR(CSR&& other) = default;
 
+	CSR& operator=(const CSR& other) = default;
+
 	gsl_lite::span<DataType> values() {
 		return gsl_lite::make_span(values_);
 	}
@@ -145,14 +147,13 @@ class CSR {
 			const int nns_end = row_ptrs_[row_id + 1];
 			const int nnz_curr_row = nns_end - nns_id;
 			int curr_col_id = 0;
-			int other_col_id = nns_end - nns_id == 0
-			                       ? std::numeric_limits<int>::max()
-			                       : tmp_col_indices[nns_id];
 			int num_added_elements = 0;
 			for (int new_nns_id = nns_offset;
 			     new_nns_id < nns_offset + num_additional_elements_curr_row +
 			                      row_ptrs_[row_id + 1] - row_ptrs_[row_id];
 			     ++new_nns_id) {
+				const int other_col_id = nns_id == nns_end ? std::numeric_limits<int>::max()
+			                       : tmp_col_indices[nns_id];
 				if (curr_col_id < other_col_id &&
 				    num_added_elements < num_additional_elements_curr_row) {
 					values_[new_nns_id] = value;
@@ -165,18 +166,14 @@ class CSR {
 					col_indices_[new_nns_id] = other_col_id;
 					curr_col_id = other_col_id + 1;
 					++nns_id;
-					// In the last for-loop iteration we do not need to update for the next iteration any more
-					if (new_nns_id <
-					    nns_offset + num_additional_elements_curr_row +
-					        row_ptrs_[row_id + 1] - row_ptrs_[row_id] - 1) {
-						other_col_id = tmp_col_indices[nns_id];
-					}
 				}
 			}
 			row_ptrs_[row_id] = nns_offset;
 			nns_offset += nnz_curr_row + num_additional_elements_curr_row;
 		}
 		row_ptrs_.back() = values_.size();
+		gsl_ExpectsAudit(std::is_sorted(row_ptrs_.begin(), row_ptrs_.end()));
+		gsl_ExpectsAudit(cols_are_sorted());
 	}
 
    private:

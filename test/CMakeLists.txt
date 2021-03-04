@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.18)
 find_package(CMakeshift REQUIRED)
 find_package(Boost REQUIRED COMPONENTS unit_test_framework filesystem)
 find_package(Eigen3 REQUIRED)
+find_package(matrixmarket REQUIRED)
 
 add_executable(
   test-thrustshift
@@ -34,7 +35,10 @@ endif()
 
 target_link_libraries(
   test-thrustshift
-  PRIVATE Boost::unit_test_framework Boost::filesystem thrustshift Eigen3::Eigen
+  PRIVATE Boost::unit_test_framework Boost::filesystem thrustshift Eigen3::Eigen matrixmarket::matrixmarket
 )
+
+target_compile_definitions(test-thrustshift PRIVATE EIGEN_NO_CUDA)
+target_compile_definitions(test-thrustshift PRIVATE gsl_CONFIG_CONTRACT_CHECKING_AUDIT)
 
 add_test(NAME "test-thrustshift" COMMAND test-thrustshift)

@@ -8,10 +8,15 @@
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
 
+#include <matrixmarket/eigen.hpp>
+
 #include <thrustshift/CSR.h>
 #include <thrustshift/eigen3>
 
 namespace bdata = boost::unit_test::data;
+namespace utf = boost::unit_test;
+
+using EMatrix = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>;
 
 BOOST_AUTO_TEST_CASE(test_csr_compilation) {
 	thrustshift::CSR<float, int> csr(std::vector<float>{1, 2, 3},
@@ -118,7 +123,6 @@ BOOST_AUTO_TEST_CASE(test_csr_extend_rows) {
 		                                 std::vector<int>{},
 		                                 std::vector<int>{0, 0, 0, 0, 0},
 		                                 4);
-		using EMatrix = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>;
 		EMatrix eig_mtx =
 		    thrustshift::eigen::csr2sparse_mtx<Eigen::SparseMatrix<float>>(csr);
 		csr.extend_rows(2, 0);
@@ -178,5 +182,82 @@ BOOST_AUTO_TEST_CASE(test_csr_extend_rows) {
 		const bool b = eig_mtx == eig_mtx_;
 		BOOST_TEST(b);
 	}
+}
+namespace {
 
+const std::vector<EMatrix> eigen_test_matrices = {
+
+    // clang-format off
+	[] {
+		EMatrix mtx(5, 5);
+		mtx <<
+			1, 2, 3, 0, 9,
+			4, 5, 0, 6, 0,
+			4, 5, 0, 6, 0,
+			4, 5, 0, 6, 0,
+			0, 0, 0, 0, 0;
+		return mtx;
+
+	}(),
+	[] {
+		EMatrix mtx(5, 5);
+		mtx <<
+			0, 2, 3, 0, 9,
+			4, 5, 0, 6, 0,
+			0, 0, 0, 0, 0,
+			4, 5, 0, 6, 0,
+			0, 0, 0, 0, 0;
+		return mtx;
+	}()
+    // clang-format on
+};
+
+}
+
+BOOST_DATA_TEST_CASE(test_csr_extend_rows_with_self_written_matrices,
+                     eigen_test_matrices,
+                     demtx0) {
+	const Eigen::SparseMatrix<float> emtx0 = demtx0.sparseView();
+	auto exec_test = [&](int num_additional_elements_per_row) {
+		auto csr = thrustshift::eigen::sparse_mtx2csr(emtx0);
+		csr.extend_rows(num_additional_elements_per_row, 0);
+		auto emtx1 =
+		    thrustshift::eigen::csr2sparse_mtx<Eigen::SparseMatrix<float>>(csr);
+		EMatrix demtx1 = emtx1;
+		BOOST_TEST_CONTEXT("num_additional_elements_per_row = "
+		                   << num_additional_elements_per_row
+		                   << ", after conversion:\n"
+		                   << demtx1) {
+			const bool b = demtx0 == demtx1;
+			BOOST_TEST(b);
+		}
+	};
+	for (int num_additional_elements_per_row = 0;
+	     num_additional_elements_per_row < 5000;
+	     num_additional_elements_per_row += 263) {
+		exec_test(num_additional_elements_per_row);
+	}
+	for (int num_additional_elements_per_row = 0;
+	     num_additional_elements_per_row < 20;
+	     ++num_additional_elements_per_row) {
+		exec_test(num_additional_elements_per_row);
+	}
+}
+
+BOOST_AUTO_TEST_CASE(test_csr_extend_rows_matrixmarket, *utf::disabled()) {
+
+	auto emtx0 = matrixmarket::readEigenSparseFromFile<float>(
+	    "/mnt/matrix_store/MM/Boeing/crystm01/crystm01.mtx");
+	for (int num_additional_elements_per_row = 0;
+	     num_additional_elements_per_row < 1000;
+	     num_additional_elements_per_row += 123) {
+		auto csr = thrustshift::eigen::sparse_mtx2csr(emtx0);
+		csr.extend_rows(num_additional_elements_per_row, 0);
+		auto emtx1 =
+		    thrustshift::eigen::csr2sparse_mtx<Eigen::SparseMatrix<float>>(csr);
+		EMatrix demtx0 = emtx0;
+		EMatrix demtx1 = emtx1;
+		const bool b = demtx0 == demtx1;
+		BOOST_TEST(b);
+	}
 }
