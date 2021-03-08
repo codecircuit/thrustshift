@@ -119,6 +119,10 @@ class CSR {
 	 */
 	void extend_rows(int num_max_additional_elements_per_row,
 	                 DataType value = 0) {
+		if (num_max_additional_elements_per_row == 0) {
+			return;
+		}
+		gsl_Expects(num_max_additional_elements_per_row >= 0);
 		std::vector<DataType> tmp_values(values_.begin(), values_.end());
 		std::vector<IndexType> tmp_col_indices(col_indices_.begin(),
 		                                       col_indices_.end());
