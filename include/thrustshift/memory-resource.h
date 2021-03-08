@@ -172,7 +172,7 @@ class delayed_pool_type : public std::pmr::memory_resource {
 	void do_deallocate(void* ptr,
 	                   size_t bytes,
 	                   size_t alignment) noexcept override {
-		if (ptr == nullptr) {
+		if (ptr == nullptr || bytes == 0) {
 			return;
 		}
 		for (auto& page_item : book_[bytes]) {
