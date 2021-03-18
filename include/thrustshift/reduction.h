@@ -32,7 +32,8 @@ void reduce(cuda::stream_t& stream,
 		                              result,
 		                              gsl_lite::narrow<int>(values.size()),
 		                              reduction_functor,
-		                              initial_value));
+		                              initial_value,
+		                              stream.id()));
 	};
 	exec();
 	auto tmp =
