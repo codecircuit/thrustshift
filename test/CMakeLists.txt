@@ -10,6 +10,7 @@ add_executable(
   "main.cpp"
   "test-coo.cu"
   "test-csr.cu"
+  "test-math.cu"
 )
 
 include(CMakeshift/TargetCompileSettings)

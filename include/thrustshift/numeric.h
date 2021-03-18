@@ -22,11 +22,4 @@ double relative_difference(T a, T b) {
 	return std::abs(a - b) / std::abs(b);
 }
 
-//! Divide first and ceil second (a / b)
-template <typename T>
-T ceil_divide(T a, T b) {
-	return a / b + (a % b == 0 ? 0 : 1);
-}
-
-
 } // namespace thrustshift
