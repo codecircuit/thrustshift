@@ -31,8 +31,13 @@ I ceil_divide(I a, I b) {
 	if (b == I(0)) {
 		throw std::domain_error("Divide by zero exception");
 	}
-	using std::abs;
-	if (abs(b) > abs(a)) {
+	// Do not use `std::abs` because there are no specializations for
+	// unsigned types. Then the compiler does not know which overload it
+	// should use if e.g. `ceil_divide(10llu, 5llu)` is called.
+	auto abs_ = [](I x) {
+		return x < I(0) ? I(-1) * x : x;
+	};
+	if (abs_(b) > abs_(a)) {
 		return I(1) * sign_(b) * sign_(a);
 	}
 	return a / b + (a % b == 0 ? 0 : (sign_(b) * sign_(a)));
