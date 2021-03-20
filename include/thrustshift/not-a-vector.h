@@ -62,4 +62,22 @@ auto make_not_a_vector(std::size_t size, Resource& memory_resource) {
 	return not_a_vector<T, decltype(alloc)>(size, alloc);
 }
 
+/*! \brief Make not_a_vector object and the span on the corresponding buffer.
+ *
+ *  This function makes it easier to construct the owning container and the view
+ *  in one line of code with structured bindings.
+ *
+ *  ```cpp
+ *
+ *  auto [nav, span] = make_not_a_vector_and_span<T>(N, resource);
+ *  ```
+ */
+template <typename T, class Resource>
+auto make_not_a_vector_and_span(std::size_t size, Resource& memory_resource) {
+	std::pmr::polymorphic_allocator<T> alloc(&memory_resource);
+	auto nav = not_a_vector<T, decltype(alloc)>(size, alloc);
+	auto s = nav.to_span();
+	return std::make_tuple(std::move(nav), s);
+}
+
 } // namespace thrustshift

@@ -11,6 +11,7 @@ add_executable(
   "test-coo.cu"
   "test-csr.cu"
   "test-math.cu"
+  "test-not-a-vector.cu"
 )
 
 include(CMakeshift/TargetCompileSettings)
