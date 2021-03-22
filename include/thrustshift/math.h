@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include <cuda/define_specifiers.hpp>
 #include <exception>
 #include <type_traits>
 
@@ -23,7 +24,7 @@ namespace thrustshift {
  *  ```
  */
 template <typename I, std::enable_if_t<std::is_integral<I>::value, bool> = true>
-I ceil_divide(I a, I b) {
+CUDA_FHD I ceil_divide(I a, I b) {
 	auto sign_ = [](I x) { return x > I(0) ? I(1) : I(-1); };
 	if (a == I(0)) {
 		return 0;
@@ -32,15 +33,52 @@ I ceil_divide(I a, I b) {
 	// Do not use `std::abs` because there are no specializations for
 	// unsigned types. Then the compiler does not know which overload it
 	// should use if e.g. `ceil_divide(10llu, 5llu)` is called.
-	auto abs_ = [](I x) {
-		return x < I(0) ? I(-1) * x : x;
-	};
+	auto abs_ = [](I x) { return x < I(0) ? I(-1) * x : x; };
 	if (abs_(b) > abs_(a)) {
 		return I(1) * sign_(b) * sign_(a);
 	}
 	return a / b + (a % b == 0 ? 0 : (sign_(b) * sign_(a)));
 }
 
+//! Useful to sort data with resepect to their absolute values without changing the values
+template <typename T>
+struct AbsView {
+	T value;
+};
 
+template <typename T>
+CUDA_FHD bool operator==(const AbsView<T>& a, const AbsView<T>& b) {
+	using std::abs;
+	return abs(a.value) == abs(b.value);
+}
+
+template <typename T>
+CUDA_FHD bool operator!=(const AbsView<T>& a, const AbsView<T>& b) {
+	return !(a == b);
+}
+
+template <typename T>
+CUDA_FHD bool operator<(const AbsView<T>& a, const AbsView<T>& b) {
+	using std::abs;
+	return abs(a.value) < abs(b.value);
+}
+
+template <typename T>
+CUDA_FHD bool operator>(const AbsView<T>& a, const AbsView<T>& b) {
+	using std::abs;
+	return abs(a.value) > abs(b.value);
+}
+
+template <typename T>
+CUDA_FHD bool operator>=(const AbsView<T>& a, const AbsView<T>& b) {
+	using std::abs;
+	return abs(a.value) >= abs(b.value);
+}
+
+template <typename T>
+CUDA_FHD bool operator<=(const AbsView<T>& a, const AbsView<T>& b) {
+	using std::abs;
+	return abs(a.value) <= abs(b.value);
+}
 
 } // namespace thrustshift
