@@ -28,9 +28,7 @@ I ceil_divide(I a, I b) {
 	if (a == I(0)) {
 		return 0;
 	}
-	if (b == I(0)) {
-		throw std::domain_error("Divide by zero exception");
-	}
+	gsl_Expects(b != I(0));
 	// Do not use `std::abs` because there are no specializations for
 	// unsigned types. Then the compiler does not know which overload it
 	// should use if e.g. `ceil_divide(10llu, 5llu)` is called.
@@ -42,5 +40,7 @@ I ceil_divide(I a, I b) {
 	}
 	return a / b + (a % b == 0 ? 0 : (sign_(b) * sign_(a)));
 }
+
+
 
 } // namespace thrustshift
