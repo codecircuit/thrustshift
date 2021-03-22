@@ -22,4 +22,5 @@ BOOST_AUTO_TEST_CASE(test_not_a_vector) {
 	constexpr int N = 512;
 	auto [nav, s] = make_not_a_vector_and_span<float>(N, mres);
 	BOOST_TEST(nav.to_span().data() == s.data());
+	static_assert(std::is_same<decltype(s), gsl_lite::span<float>>::value);
 }
