@@ -245,6 +245,14 @@ class CSR_view {
 		return num_cols_;
 	}
 
+	CUDA_FHD IndexType max_row_nnz() const {
+		IndexType mnnz = 0;
+		for (size_t row_id = 1; row_id < row_ptrs_.size(); ++row_id) {
+			mnnz = std::max(row_ptrs_[row_id] - row_ptrs_[row_id - 1], mnnz);
+		}
+		return mnnz;
+	}
+
    private:
 	gsl_lite::span<DataType> values_;
 	gsl_lite::span<IndexType> col_indices_;
