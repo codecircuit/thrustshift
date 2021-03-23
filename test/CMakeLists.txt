@@ -12,6 +12,7 @@ add_executable(
   "test-csr.cu"
   "test-math.cu"
   "test-not-a-vector.cu"
+  "test-sort.cu"
 )
 
 include(CMakeshift/TargetCompileSettings)
