@@ -43,6 +43,7 @@ CUDA_FHD I ceil_divide(I a, I b) {
 //! Useful to sort data with resepect to their absolute values without changing the values
 template <typename T>
 struct AbsView {
+	using value_type = T;
 	T value;
 };
 
