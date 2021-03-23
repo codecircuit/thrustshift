@@ -25,7 +25,6 @@ BOOST_AUTO_TEST_CASE(test_math) {
 	BOOST_TEST(ceil_divide(-10, 3) == -4);
 	BOOST_TEST(ceil_divide(-10, 5) == -2);
 	BOOST_TEST(ceil_divide(-10, -5) == 2);
-	BOOST_CHECK_THROW(ceil_divide(10, 0), std::exception);
 	BOOST_TEST(ceil_divide(-10, 6) == -2);
 }
 
