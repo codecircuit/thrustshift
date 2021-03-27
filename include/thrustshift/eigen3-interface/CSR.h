@@ -7,9 +7,9 @@
 #include <Eigen/Sparse>
 
 #include <thrustshift/CSR.h>
+#include <thrustshift/container-conversion.h>
 #include <thrustshift/managed-vector.h>
 #include <thrustshift/memory-resource.h>
-#include <thrustshift/container-conversion.h>
 
 namespace thrustshift {
 
@@ -54,8 +54,9 @@ EigenSparseMatrix csr2sparse_mtx(CSR_C&& csr) {
 	using StorageIndex =
 	    typename std::remove_reference<EigenSparseMatrix>::type::StorageIndex;
 
-	return coo2sparse_mtx<EigenSparseMatrix>(csr2coo<thrustshift::COO<DataType, StorageIndex>>(
-	    std::forward<CSR_C>(csr), pmr::default_resource));
+	return coo2sparse_mtx<EigenSparseMatrix>(
+	    csr2coo<thrustshift::COO<DataType, StorageIndex>>(
+	        std::forward<CSR_C>(csr), pmr::default_resource));
 }
 
 } // namespace eigen
