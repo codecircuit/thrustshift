@@ -5,6 +5,7 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
+#include <thrust/sort.h>
 #include <cuda/define_specifiers.hpp>
 
 #include <thrustshift/memory-resource.h>
@@ -109,6 +110,17 @@ class CSR {
 
 	size_t num_cols() const {
 		return num_cols_;
+	}
+
+	void sort_column_indices() {
+		for (size_t row_id = 0; row_id < num_rows(); ++row_id) {
+			const auto nns_start = row_ptrs_[row_id];
+			const auto nns_end = row_ptrs_[row_id + 1];
+			thrust::sort_by_key(thrust::host,
+			                    col_indices_.begin() + nns_start,
+			                    col_indices_.begin() + nns_end,
+			                    values_.begin() + nns_start);
+		}
 	}
 
 	/*! \brief Add additional elements to each row of the matrix.
