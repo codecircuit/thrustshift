@@ -168,8 +168,9 @@ class CSR {
 			     new_nns_id < nns_offset + num_additional_elements_curr_row +
 			                      row_ptrs_[row_id + 1] - row_ptrs_[row_id];
 			     ++new_nns_id) {
-				const int other_col_id = nns_id == nns_end ? std::numeric_limits<int>::max()
-			                       : tmp_col_indices[nns_id];
+				const int other_col_id = nns_id == nns_end
+				                             ? std::numeric_limits<int>::max()
+				                             : tmp_col_indices[nns_id];
 				if (curr_col_id < other_col_id &&
 				    num_added_elements < num_additional_elements_curr_row) {
 					values_[new_nns_id] = value;
@@ -220,6 +221,22 @@ class CSR_view {
 	      col_indices_(owner.col_indices()),
 	      row_ptrs_(owner.row_ptrs()),
 	      num_cols_(owner.num_cols()) {
+	}
+
+	template <class DataRange,
+	          class ColIndRange,
+	          class RowPtrsRange>
+	CSR_view(DataRange&& values,
+	    ColIndRange&& col_indices,
+	    RowPtrsRange&& row_ptrs,
+	    size_t num_cols)
+	    : values_(values),
+	      col_indices_(col_indices),
+	      row_ptrs_(row_ptrs),
+	      num_cols_(num_cols) {
+		gsl_Expects(values.size() == col_indices.size());
+		gsl_Expects(row_ptrs.size() > 0);
+		gsl_ExpectsAudit(row_ptrs[0] == 0);
 	}
 
 	CSR_view(const CSR_view& other) = default;
