@@ -13,6 +13,7 @@ add_executable(
   "test-math.cu"
   "test-not-a-vector.cu"
   "test-sort.cu"
+  "test-wrap-subgroups.cu"
 )
 
 include(CMakeshift/TargetCompileSettings)
