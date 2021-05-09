@@ -29,6 +29,21 @@ void generate_uniform_real(Range&& range,
 }
 
 template <class Range,
+          typename T = typename std::remove_reference<
+              Range>::type::value_type::value_type>
+void generate_uniform_complex(Range&& range,
+                              T min = T{0},
+                              T max = T{1},
+                              unsigned long long seed = 0) {
+	gsl_Expects(min <= max);
+	using Complex = typename std::remove_reference<Range>::type::value_type;
+	std::default_random_engine rng(seed);
+	std::uniform_real_distribution<T> dist(min, max);
+	auto cdist = [&](auto& rng) -> Complex { return {dist(rng), dist(rng)}; };
+	generate(std::forward<Range>(range), cdist, rng);
+}
+
+template <class Range,
           typename T = typename std::remove_reference<Range>::type::value_type>
 void generate_normal_real(Range&& range,
                           T mean = T{0},
@@ -38,6 +53,21 @@ void generate_normal_real(Range&& range,
 	std::default_random_engine rng(seed);
 	std::normal_distribution<T> dist(mean, stddev);
 	generate(std::forward<Range>(range), dist, rng);
+}
+
+template <class Range,
+          typename T = typename std::remove_reference<
+              Range>::type::value_type::value_type>
+void generate_normal_complex(Range&& range,
+                             T mean = T{0},
+                             T stddev = T{1},
+                             unsigned long long seed = 0) {
+	gsl_Expects(stddev >= 0);
+	using Complex = typename std::remove_reference<Range>::type::value_type;
+	std::default_random_engine rng(seed);
+	std::normal_distribution<T> dist(mean, stddev);
+	auto cdist = [&](auto& rng) -> Complex { return {dist(rng), dist(rng)}; };
+	generate(std::forward<Range>(range), cdist, rng);
 }
 
 } // namespace random
