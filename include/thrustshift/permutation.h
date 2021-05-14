@@ -46,21 +46,21 @@ void multiply(PermutationA&& a, PermutationB&& b, ResultPermutation&& result) {
 }
 
 /*! \brief Multiply successive permutations
- * 
+ *
  *  Assume you have \f$N\f$ permutations \f$P_{N-1},...,P_0\f$
- *  and \f$N\f$ linear maps \f$M_{N-1},...,M_0\f$ where each 
+ *  and \f$N\f$ linear maps \f$M_{N-1},...,M_0\f$ where each
  *  linear map \f$M_i\f$ operates on the new order described by
  *  \f$P_i\f$ relatively to the natural order. If every
  *  linear map is applied to a vector \f$x\f$ in natural order
  *  it yields to:
- *  
+ *
  *  \f[
  *      P_{N-1}^T M_{N-1} P_{N-1} P_{N-2}^T M^{N-2} ... P_0^T M_0 P_0 x
  *  \f]
- *  
+ *
  *  The \f$P_i\f$ permutation matrices are given in vectorial form \f$p_i\f$
  *  such that \f$(P_i)_mn = 1\f$ if \f$(p_i)_m = n\f$.
- *  
+ *
  *  \param input_permutations Range of size N with ranges of length L each
  *  \param merged_permutations Range of size N - 1 with ranges of length L each.
  *    merged_permutations[i] = \f$P_{i+1} P_{i}^T\f$
