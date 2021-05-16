@@ -14,6 +14,7 @@ add_executable(
   "test-not-a-vector.cu"
   "test-sort.cu"
   "test-wrap-subgroups.cu"
+  "test-count-leading-zeros.cu"
 )
 
 include(CMakeshift/TargetCompileSettings)
