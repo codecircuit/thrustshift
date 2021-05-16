@@ -128,6 +128,7 @@ class bit_successive_permutation_t {
 
    public:
 	CUDA_FHD bit_successive_permutation_t(int N) : bit_pattern_(BitPatternT(1) << (N-1)) {
+		gsl_Expects(N <= sizeof(BitPatternT) * 8);
 #ifndef NDEBUG
 		N_ = N;
 #endif
