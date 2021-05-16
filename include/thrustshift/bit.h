@@ -18,13 +18,13 @@ int count_leading_zeros_cpu(I i) {
 	std::bitset<sizeof(I) * 8> bs(i);
 	static_assert(bs.size() > 0);
 	int lz = 0;
-	for (int bi = gsl_lite::narrow<int>(bs.size()) - 1; bi >= 0; --bi) {
+	for (int bi = gsl_lite::narrow<int>(sizeof(I) * 8) - 1; bi >= 0; --bi) {
 		if (bs[bi]) {
 			break;
 		}
 		++lz;
 	}
-	return gsl_lite::narrow<int>(bs.size()) - lz;
+	return lz;
 }
 
 template <typename I>
