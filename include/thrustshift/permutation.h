@@ -91,13 +91,13 @@ void multiply_successive(InputPermutations&& input_permutations,
 
 /*! \brief Bitoptimized successive pairwise permutation
  *
- *  This class saves a permutation of `i = {0,...,N-1}`, which
- *  is created by successive pairwise swaps of the sequence `i`:
+ *  This class saves a permutation of `I = {0,...,N-1}`, which
+ *  is created by successive pairwise swaps of the sequence `I`:
  *
  *  ```cpp
  *  for (int j = 1; j < N; ++j) {
- *      if (do_swap[j]) {
- *          swap(i[j], i[j - 1]);
+ *      if (do_swap[j - 1]) {
+ *          swap(I[j - 1], I[j]);
  *      }
  *  }
  *  ```
@@ -106,12 +106,12 @@ void multiply_successive(InputPermutations&& input_permutations,
  *  a bit pattern within this class.
  *  This can also be seen as a path in a binary tree with `N` levels because
  *  the internal representation is a bit pattern, which sets the bit if the
- *  swap is done. `N` is limited by the amount of Bits in `BitPatternT`.
+ *  swap is not done. `N` is limited by the amount of Bits in `BitPatternT`.
  *  If `operator[]` is called once, no function to change the `do_swap`
  *  array should be called by the user. The state of the class is then a
- *  read-only mode. Moreover the array `i` can only be read successively
- *  by the `operator[]`. Thus reading the pattern starts with a specific
- *  `j` and in the next call `j-1` must be used as a function argument.
+ *  read-only mode. Moreover the array `I` can only be read successively
+ *  by the `operator[]`. Thus reading the pattern starts with the last element
+ *  `i = N - 1` and in the next call `i = i - 1` must be used as a function argument.
  *  This is an highly unsafe class design, which is chosen to avoid the
  *  usage of additional registers. E.g. the safety of the class can be
  *  greatly improved if one register is added, which is avoided here
