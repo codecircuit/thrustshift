@@ -16,6 +16,7 @@ add_executable(
   "test-wrap-subgroups.cu"
   "test-bit-successive-permutation.cu"
   "test-count-leading-zeros.cu"
+  "test-block-copy.cu"
 )
 
 include(CMakeshift/TargetCompileSettings)
