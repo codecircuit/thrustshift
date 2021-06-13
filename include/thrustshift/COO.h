@@ -281,6 +281,22 @@ class COO_view {
 	      num_cols_(owner.num_cols()) {
 	}
 
+	template <class ValueRange, class ColIndRange, class RowIndRange>
+	COO_view(ValueRange&& values,
+	         RowIndRange&& row_indices,
+	         ColIndRange&& col_indices,
+	         size_t num_rows,
+	         size_t num_cols)
+	    : values_(values),
+	      row_indices_(row_indices),
+	      col_indices_(col_indices),
+	      num_rows_(num_rows),
+	      num_cols_(num_cols) {
+		const auto nnz = values.size();
+		gsl_Expects(col_indices.size() == nnz);
+		gsl_Expects(row_indices.size() == nnz);
+	}
+
 	COO_view(const COO_view& other) = default;
 
 	CUDA_FHD gsl_lite::span<DataType> values() {
