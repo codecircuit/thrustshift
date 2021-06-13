@@ -8,8 +8,6 @@
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
 
-#include <matrixmarket/eigen.hpp>
-
 #include <thrustshift/memory-resource.h>
 #include <thrustshift/not-a-vector.h>
 
