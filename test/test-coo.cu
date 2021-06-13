@@ -5,12 +5,17 @@
 
 #include <cuda/runtime_api.hpp>
 
+#include <Eigen/Sparse>
+
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
 
 #include <thrustshift/COO.h>
+#include <thrustshift/eigen3>
 
 namespace bdata = boost::unit_test::data;
+
+using namespace thrustshift;
 
 namespace {
 
@@ -124,4 +129,26 @@ BOOST_AUTO_TEST_CASE(test_coo_ctors) {
 	[[maybe_unused]] gsl_lite::span<const float> s1 = view1.values();
 	[[maybe_unused]] gsl_lite::span<int> s2 = view1.col_indices();
 	thrustshift::COO_view<const float, const int> view2(coo);
+}
+
+BOOST_DATA_TEST_CASE(test_symmetrize_abs_coo, test_data, td) {
+
+	// Symmetrize test are undefined on non-square matrices
+	if (td.num_rows == td.num_cols) {
+		thrustshift::COO<float, int> coo(td.values,
+		                                 td.row_indices,
+		                                 td.col_indices,
+		                                 td.num_rows,
+		                                 td.num_cols);
+
+		auto eigen_mtx = eigen::coo2sparse_mtx<Eigen::SparseMatrix<float>>(coo);
+		eigen_mtx =
+		    eigen_mtx.cwiseAbs() +
+		    Eigen::SparseMatrix<float>(eigen_mtx.transpose()).cwiseAbs();
+		auto gold_coo_sym = eigen::sparse_mtx2coo(eigen_mtx);
+		pmr::delayed_pool_type<pmr::managed_resource_type> memory_resource;
+		auto coo_sym = symmetrize_abs<float, int>(coo, memory_resource);
+		const bool b = coo_sym == gold_coo_sym;
+		BOOST_TEST(b);
+	}
 }

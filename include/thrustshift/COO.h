@@ -4,7 +4,11 @@
 #include <vector>
 
 #include <thrust/execution_policy.h>
+#include <thrust/functional.h>
+#include <thrust/inner_product.h>
 #include <thrust/iterator/zip_iterator.h>
+#include <thrust/merge.h>
+#include <thrust/reduce.h>
 #include <thrust/sort.h>
 #include <thrust/tuple.h>
 
@@ -16,11 +20,12 @@
 #include <thrustshift/equal.h>
 #include <thrustshift/managed-vector.h>
 #include <thrustshift/memory-resource.h>
+#include <thrustshift/not-a-vector.h>
+#include <thrustshift/transform.h>
 
 namespace thrustshift {
 
 enum class storage_order_t { row_major, col_major, none };
-
 
 template <typename DataType, typename IndexType>
 class COO {
@@ -361,7 +366,10 @@ namespace async {
 //! Calculate the product `result_coo_mtx = (diag_mtx * coo_mtx)`
 //! result_coo_mtx can be equal to coo_mtx. Then the multiplication is in place.
 template <class Range, class COO_C0, class COO_C1>
-void diagmm(cuda::stream_t& stream, Range&& diag_mtx, COO_C0&& coo_mtx, COO_C1&& result_coo_mtx) {
+void diagmm(cuda::stream_t& stream,
+            Range&& diag_mtx,
+            COO_C0&& coo_mtx,
+            COO_C1&& result_coo_mtx) {
 
 	gsl_Expects(coo_mtx.values().size() == result_coo_mtx.values().size());
 	gsl_Expects(coo_mtx.num_cols() == result_coo_mtx.num_cols());
@@ -388,5 +396,120 @@ void diagmm(cuda::stream_t& stream, Range&& diag_mtx, COO_C0&& coo_mtx, COO_C1&&
 }
 
 } // namespace async
+
+/* \brief Transform two sparse COO matrices coefficient-wise `op(op_a(a), op_b(b))`.
+ * \param a first sparse COO matrix.
+ * \param b second sparse COO matrix.
+ * \param op_a Unary operator which is applied to all non-zero coefficients of `a`.
+ * \param op_b Unary operator which is applied to all non-zero coefficients of `b`.
+ * \param op Binary operator how coefficients at the same positions are combined.
+ * \return COO matrix allocated with `memory_resource`.
+ * \note It might be misleading that the binary operator is **not** applied to coefficients, which
+ *   only appear in one of the two matrices. E.g. `op=minus`, `op_a=identity`, `op_b=identity` and `a` is a zero matrix the result
+ *   is `result != a - b = -b`.
+ */
+template <typename DataType,
+          typename IndexType,
+          class BinaryOperator,
+          class UnaryOperatorA,
+          class UnaryOperatorB,
+          class MemoryResource>
+thrustshift::COO<DataType, IndexType> transform(
+    thrustshift::COO_view<const DataType, const IndexType> a,
+    thrustshift::COO_view<const DataType, const IndexType> b,
+    BinaryOperator&& op,
+    UnaryOperatorA&& op_a,
+    UnaryOperatorB&& op_b,
+    MemoryResource& memory_resource) {
+
+	const auto nnz_a = a.values().size();
+	const auto nnz_b = b.values().size();
+	const auto num_rows = a.num_rows();
+	const auto num_cols = b.num_cols();
+	gsl_Expects(b.num_rows() == num_rows);
+	gsl_Expects(b.num_cols() == num_cols);
+
+	auto [tmp0, values] =
+	    make_not_a_vector_and_span<DataType>(nnz_a + nnz_b, memory_resource);
+	auto [tmp1, row_indices] =
+	    make_not_a_vector_and_span<IndexType>(nnz_a + nnz_b, memory_resource);
+	auto [tmp2, col_indices] =
+	    make_not_a_vector_and_span<IndexType>(nnz_a + nnz_b, memory_resource);
+
+	auto device = cuda::device::current::get();
+	auto stream = device.default_stream();
+
+	async::transform(stream, a.values(), values.first(nnz_a), op_a);
+	async::copy(stream, a.row_indices(), row_indices.first(nnz_a));
+	async::copy(stream, a.col_indices(), col_indices.first(nnz_a));
+
+	async::transform(stream, b.values(), values.subspan(nnz_a), op_b);
+	async::copy(stream, b.row_indices(), row_indices.subspan(nnz_a));
+	async::copy(stream, b.col_indices(), col_indices.subspan(nnz_a));
+
+	using KeyT = thrust::tuple<IndexType, IndexType>;
+	auto keys_begin = thrust::make_zip_iterator(
+	    thrust::make_tuple(row_indices.begin(), col_indices.begin()));
+	auto keys_end = keys_begin + nnz_a + nnz_b;
+
+	std::pmr::polymorphic_allocator<KeyT> alloc(&memory_resource);
+	thrust::sort_by_key(
+	    thrust::cuda::par(alloc), keys_begin, keys_end, values.begin());
+
+	const std::size_t nnz_result =
+	    thrust::inner_product(thrust::cuda::par(alloc),
+	                          keys_begin,
+	                          keys_end - 1,
+	                          keys_begin + 1,
+	                          std::size_t(0),
+	                          thrust::plus<std::size_t>(),
+	                          thrust::not_equal_to<KeyT>()) +
+	    std::size_t(1);
+
+	// ```cpp
+	//   auto memory_resource = ...;
+	//   auto res = transform(..., memory_resource);
+	//
+	// ```
+	// should work fine because the dtor of `res` is called before the dtor of `memory_resource`
+	COO<DataType, IndexType> result(
+	    nnz_result, num_rows, num_cols, memory_resource);
+	auto keys_result_begin = thrust::make_zip_iterator(thrust::make_tuple(
+	    result.row_indices().begin(), result.col_indices().begin()));
+	thrust::reduce_by_key(thrust::cuda::par(alloc),
+	                      keys_begin,
+	                      keys_end,
+	                      values.begin(),
+	                      keys_result_begin,
+	                      result.values().begin(),
+	                      thrust::equal_to<KeyT>(),
+	                      op);
+	return result;
+}
+
+template <typename DataType, typename IndexType, class MemoryResource>
+COO<DataType, IndexType> symmetrize_abs(
+    COO_view<const DataType, const IndexType> mtx,
+    MemoryResource& memory_resource) {
+
+	if (mtx.values().empty()) {
+		return COO<DataType, IndexType>(0, mtx.num_rows(), mtx.num_cols(), memory_resource);
+	}
+
+	COO_view<const DataType, const IndexType> mtx_trans(
+	    mtx.values(),
+	    mtx.col_indices(),
+	    mtx.row_indices(),
+	    mtx.num_rows(),
+	    mtx.num_cols());
+	auto abs = [] __device__(DataType x) { return std::abs(x); };
+	return transform(
+	    mtx,
+	    mtx_trans,
+	    [] __device__(DataType a, DataType b) { return a + b; },
+	    abs,
+	    abs,
+	    memory_resource);
+}
 
 } // namespace thrustshift
