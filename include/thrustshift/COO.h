@@ -12,6 +12,8 @@
 
 #include <cuda/define_specifiers.hpp>
 
+#include <thrustshift/copy.h>
+#include <thrustshift/equal.h>
 #include <thrustshift/managed-vector.h>
 #include <thrustshift/memory-resource.h>
 
@@ -243,6 +245,16 @@ class COO {
 	size_t num_cols_;
 	storage_order_t storage_order_;
 };
+
+//! Storage order does not affect comparison operator. Therefore this operator is defined explicitly.
+template <typename DataType, typename IndexType>
+bool operator==(const COO<DataType, IndexType>& a,
+                const COO<DataType, IndexType>& b) {
+	return equal(a.values(), b.values()) &&
+	       equal(a.row_indices(), b.row_indices()) &&
+	       equal(a.col_indices(), b.col_indices()) &&
+	       a.num_rows() == b.num_rows() && a.num_cols() == b.num_cols();
+}
 
 template <typename DataType, typename IndexType>
 class COO_view {
