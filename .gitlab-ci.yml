@@ -1,0 +1,58 @@
+variables:
+  # give multiple CUDA architectures as a list, e.g. "61;75"
+  CUDA_ARCHITECTURES: 75
+  SLURM_NICE_VALUE: 100
+
+build-release:
+  stage: build
+  artifacts:
+    untracked: true # keep all files which are created in this stage
+    expire_in: 2 hrs
+  script:
+    - mkdir -p build/release
+    - cmake -S . -B build/release -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+    - make -C build/release -j # build
+
+build-debug:
+  stage: build
+  artifacts:
+    untracked: true # keep all files which are created in this stage
+    expire_in: 2 hrs
+  script:
+    - mkdir -p build/debug
+    - cmake -S . -B build/debug -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
+    - make -C build/debug -j # build
+
+test-release:
+  stage: test
+  script:
+    - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE ./build/release/test-thrustshift
+
+test-release-sanitizer:
+  stage: test
+  script:
+    - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE compute-sanitizer ./build/release/test-thrustshift
+    - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE compute-sanitizer --tool racecheck ./build/release/test-thrustshift
+    - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE compute-sanitizer --tool synccheck ./build/release/test-thrustshift
+
+test-release-valgrind:
+  stage: test
+  script:
+    - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE valgrind ./build/release/test-thrustshift
+
+test-debug:
+  stage: test
+  script:
+    - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE ./build/debug/test-thrustshift
+
+test-debug-sanitizer:
+  stage: test
+  script:
+    - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE compute-sanitizer ./build/debug/test-thrustshift
+    - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE compute-sanitizer --tool racecheck ./build/debug/test-thrustshift
+    - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE compute-sanitizer --tool synccheck ./build/debug/test-thrustshift
+
+test-debug-valgrind:
+  stage: test
+  script:
+    - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE valgrind ./build/debug/test-thrustshift
