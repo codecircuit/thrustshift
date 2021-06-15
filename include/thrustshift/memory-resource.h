@@ -52,63 +52,6 @@ class device_resource_type : public std::pmr::memory_resource {
 	}
 };
 
-/*! \brief Allocates only if requested buffer size was not allocated previously.
- *
- *  This pool is useful for functions, which require temporary GPU memory. The
- *  host can allocate memory via this pool, launch the kernel with the corresponding
- *  pointer and exit the function without deallocating the memory because the
- *  host is not aware about the runtime of the GPU kernel and when the kernel
- *  may read the temporary required memory. This pool should not be used if the
- *  byte size of the allocations differ often becaues every time an allocation
- *  is called it actually results into a new allocation if not the exact same
- *  size was allocated previously.
- *
- *  Do not use if different buffers of the same size are required.
- *
- *  \note std::pmr compatible
- */
-template <class Upstream>
-class oversubscribed_delayed_pool_type : public std::pmr::memory_resource {
-   private:
-	struct book_page_type {
-		void* ptr;
-		size_t alignment;
-	};
-
-   public:
-	oversubscribed_delayed_pool_type() = default;
-
-	~oversubscribed_delayed_pool_type() noexcept {
-		for (auto& [bytes, book_page] : book_) {
-			res_.deallocate(book_page.ptr, bytes, book_page.alignment);
-		}
-	}
-
-   private:
-	void* do_allocate(size_t bytes, size_t alignment) override {
-		if (auto it = book_.find(bytes); it != book_.end()) {
-			return it->second.ptr;
-		}
-		void* ptr = res_.allocate(bytes, alignment);
-		book_[bytes] = {ptr, alignment};
-		return ptr;
-	}
-
-	void do_deallocate([[maybe_unused]] void* ptr,
-	                   [[maybe_unused]] size_t bytes,
-	                   [[maybe_unused]] size_t alignment) noexcept override {
-	}
-
-	bool do_is_equal(
-	    const std::pmr::memory_resource& other) const noexcept override {
-		return this == &other;
-	}
-
-	Upstream res_;
-	// size in bytes -> (ptr, alignment)
-	std::map<size_t, book_page_type> book_;
-};
-
 namespace detail {
 
 struct page_id_type {
@@ -132,10 +75,8 @@ inline bool operator<(const page_id_type& a, const page_id_type& b) {
  *  byte size of the allocations differ often becaues every time an allocation
  *  is called it actually results into a new allocation if not the exact same
  *  size was allocated previously.
- *  
- *  Contrary to `oversubscribed_delayed_pool_type` this resource does not return
- *  the same buffer if `deallocate` was not called for that buffer previously. This
- *  is useful if functions delegate the memory resource to other functions, which
+ *
+ *  This class is useful if functions delegate the memory resource to other functions, which
  *  are maybe called iteratively and if the function requires different buffers of
  *  the same size.
  *
