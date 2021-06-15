@@ -1,8 +1,8 @@
 #pragma once
 
 #include <map>
-#include <vector>
 #include <memory_resource>
+#include <vector>
 
 #include <gsl-lite/gsl-lite.hpp>
 
@@ -14,7 +14,8 @@ namespace pmr {
 
 //! Unified CUDA Memory Resource. Buffers cannet be deallocated partially. Alignment is ignored.
 class managed_resource_type : public std::pmr::memory_resource {
-	void* do_allocate(std::size_t bytes, [[maybe_unused]] std::size_t alignment) override {
+	void* do_allocate(std::size_t bytes,
+	                  [[maybe_unused]] std::size_t alignment) override {
 		auto region = cuda::memory::managed::detail::allocate(bytes);
 		return region.get();
 	}
@@ -25,14 +26,16 @@ class managed_resource_type : public std::pmr::memory_resource {
 		cuda::memory::managed::detail::free(p);
 	}
 
-	bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
+	bool do_is_equal(
+	    const std::pmr::memory_resource& other) const noexcept override {
 		return this == &other;
 	}
 };
 
 //! Device CUDA Memory Resource. Buffers cannot be deallocated partially. Alignment is ignored.
 class device_resource_type : public std::pmr::memory_resource {
-	void* do_allocate(std::size_t bytes, [[maybe_unused]] std::size_t alignment) override {
+	void* do_allocate(std::size_t bytes,
+	                  [[maybe_unused]] std::size_t alignment) override {
 		auto region = cuda::memory::device::detail::allocate(bytes);
 		return region.get();
 	}
@@ -43,11 +46,11 @@ class device_resource_type : public std::pmr::memory_resource {
 		cuda::memory::device::free(p);
 	}
 
-	bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
+	bool do_is_equal(
+	    const std::pmr::memory_resource& other) const noexcept override {
 		return this == &other;
 	}
 };
-
 
 /*! \brief Allocates only if requested buffer size was not allocated previously.
  *
@@ -106,6 +109,19 @@ class oversubscribed_delayed_pool_type : public std::pmr::memory_resource {
 	std::map<size_t, book_page_type> book_;
 };
 
+namespace detail {
+
+struct page_id_type {
+	size_t bytes;
+	size_t alignment;
+};
+
+inline bool operator<(const page_id_type& a, const page_id_type& b) {
+	return a.bytes < b.bytes && a.alignment < b.alignment;
+}
+
+} // namespace detail
+
 /*! \brief Allocates only if requested buffer size is currently not in the free pool.
  *
  *  This pool is useful for functions, which require temporary GPU memory. The
@@ -128,10 +144,8 @@ class oversubscribed_delayed_pool_type : public std::pmr::memory_resource {
 template <class Upstream>
 class delayed_pool_type : public std::pmr::memory_resource {
    private:
-
 	struct page_item_type {
 		void* ptr;
-		size_t alignment;
 		bool allocated;
 	};
 
@@ -139,9 +153,10 @@ class delayed_pool_type : public std::pmr::memory_resource {
 	delayed_pool_type() = default;
 
 	~delayed_pool_type() noexcept {
-		for (auto& [bytes, book_page] : book_) {
+		for (auto& [page_id, book_page] : book_) {
 			for (auto& page_item : book_page) {
-				res_.deallocate(page_item.ptr, bytes, page_item.alignment);
+				res_.deallocate(
+				    page_item.ptr, page_id.bytes, page_id.alignment);
 			}
 		}
 	}
@@ -151,7 +166,7 @@ class delayed_pool_type : public std::pmr::memory_resource {
 		if (bytes == 0) {
 			return nullptr;
 		}
-		if (auto it = book_.find(bytes); it != book_.end()) {
+		if (auto it = book_.find({bytes, alignment}); it != book_.end()) {
 			for (auto& page_item : it->second) {
 				if (!page_item.allocated) {
 					page_item.allocated = true;
@@ -160,12 +175,12 @@ class delayed_pool_type : public std::pmr::memory_resource {
 			}
 			// no page item was free
 			void* ptr = res_.allocate(bytes, alignment);
-			it->second.push_back({ptr, alignment, true});
+			it->second.push_back({ptr, true});
 			return ptr;
 		}
 		// the required size was never allocated before
 		void* ptr = res_.allocate(bytes, alignment);
-		book_[bytes] = {{ptr, alignment, true}};
+		book_[{bytes, alignment}] = {{ptr, true}};
 		return ptr;
 	}
 
@@ -175,9 +190,8 @@ class delayed_pool_type : public std::pmr::memory_resource {
 		if (ptr == nullptr || bytes == 0) {
 			return;
 		}
-		for (auto& page_item : book_[bytes]) {
+		for (auto& page_item : book_[{bytes, alignment}]) {
 			if (page_item.ptr == ptr && page_item.allocated) {
-				gsl_Expects(page_item.alignment == alignment);
 				page_item.allocated = false;
 				return;
 			}
@@ -193,7 +207,7 @@ class delayed_pool_type : public std::pmr::memory_resource {
 
 	Upstream res_;
 	// size in bytes -> (ptr, alignment)
-	std::map<size_t, std::vector<page_item_type>> book_;
+	std::map<detail::page_id_type, std::vector<page_item_type>> book_;
 };
 
 static managed_resource_type default_resource;
