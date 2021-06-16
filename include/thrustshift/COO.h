@@ -497,7 +497,7 @@ thrustshift::COO<DataType, IndexType> transform(
 	    thrust::make_tuple(row_indices.begin(), col_indices.begin()));
 	auto keys_end = keys_begin + nnz_a + nnz_b;
 
-	std::pmr::polymorphic_allocator<char> alloc(&memory_resource);
+	std::pmr::polymorphic_allocator<KeyT> alloc(&memory_resource);
 	thrust::sort_by_key(
 	    thrust::cuda::par(alloc), keys_begin, keys_end, values.begin());
 
