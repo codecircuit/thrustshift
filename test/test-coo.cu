@@ -10,8 +10,12 @@
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
 
+#include <matrixmarket/eigen.hpp>
+
 #include <thrustshift/COO.h>
 #include <thrustshift/eigen3>
+
+#include "./memory-resource-check.h"
 
 namespace bdata = boost::unit_test::data;
 
@@ -29,7 +33,7 @@ struct test_data_t {
 	size_t num_cols;
 };
 
-inline std::ostream& operator<<(std::ostream& os, const test_data_t& td) {
+inline std::ostream& operator<<(std::ostream& os, [[maybe_unused]] const test_data_t& td) {
 	return os;
 }
 
@@ -150,5 +154,35 @@ BOOST_DATA_TEST_CASE(test_symmetrize_abs_coo, test_data, td) {
 		auto coo_sym = symmetrize_abs<float, int>(coo, memory_resource);
 		const bool b = coo_sym == gold_coo_sym;
 		BOOST_TEST(b);
+	}
+}
+
+BOOST_AUTO_TEST_CASE(test_symmetrize_abs_coo_matrix_store) {
+
+	const std::string pth =
+	    "/mnt/matrix_store/ModelPDEs/A_problem4n256square/"
+	    "A_problem4n256square.mtx";
+	Eigen::SparseMatrix<float> eigen_mtx =
+	    matrixmarket::readEigenSparseFromFile<float>(pth);
+	auto device = cuda::device::current::get();
+	auto stream = device.default_stream();
+
+	// Symmetrize test are undefined on non-square matrices
+	if (eigen_mtx.rows() == eigen_mtx.cols()) {
+
+		pmr::delayed_pool_type<pmr::managed_resource_type> memory_resource;
+		{
+			auto coo = eigen::sparse_mtx2coo(eigen_mtx);
+
+			eigen_mtx =
+			    eigen_mtx.cwiseAbs() +
+			    Eigen::SparseMatrix<float>(eigen_mtx.transpose()).cwiseAbs();
+			auto gold_coo_sym = eigen::sparse_mtx2coo(eigen_mtx);
+			auto coo_sym = symmetrize_abs<float, int>(coo, memory_resource);
+			const bool b = coo_sym == gold_coo_sym;
+			BOOST_TEST(b);
+		}
+
+		touch_all_memory_resource_pages(memory_resource);
 	}
 }
