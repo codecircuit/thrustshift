@@ -403,6 +403,44 @@ void diagmm(cuda::stream_t& stream,
 
 } // namespace async
 
+namespace kernel {
+
+template <typename T0, typename I, typename T1>
+__global__ void get_diagonal(COO_view<const T0, const I> mtx,
+                             gsl_lite::span<T1> diag) {
+
+	const auto gtid = threadIdx.x + blockDim.x * blockDim.x;
+	if (gtid < mtx.num_rows()) {
+		const auto row_id = mtx.row_indices()[gtid];
+		const auto col_id = mtx.col_indices()[gtid];
+		if (row_id == col_id) {
+			diag[row_id] = mtx.values()[gtid];
+		}
+	}
+}
+
+} // namespace kernel
+
+namespace async {
+
+template <typename T, class COO>
+void get_diagonal(cuda::stream_t& stream, COO&& mtx, gsl_lite::span<T> diag) {
+
+	using I = typename std::remove_reference<COO>::type::index_type;
+	using T0 = typename std::remove_reference<COO>::type::value_type;
+	const auto nnz = mtx.values().size();
+	constexpr cuda::grid::block_dimension_t block_dim = 128;
+	const cuda::grid::dimension_t grid_dim = ceil_divide(gsl_lite::narrow<cuda::grid::dimension_t>(nnz), gsl_lite::narrow<cuda::grid::dimension_t>(block_dim));
+	fill(stream, diag, 0);
+	cuda::enqueue_launch(kernel::get_diagonal<T0, I, T>,
+	                     stream,
+	                     cuda::make_launch_config(grid_dim, block_dim),
+	                     mtx,
+	                     diag);
+}
+
+} // namespace async
+
 /* \brief Transform two sparse COO matrices coefficient-wise `op(op_a(a), op_b(b))`.
  * \param a first sparse COO matrix.
  * \param b second sparse COO matrix.
