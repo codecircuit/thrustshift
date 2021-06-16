@@ -69,10 +69,10 @@ CSR_C coo2csr(COO_C&& coo_, MemoryResource& memory_resource) {
 		coo.change_storage_order(storage_order_t::row_major);
 		auto row_ptrs = coo.get_ptrs();
 		return CSR_C(
-		    coo.values(), coo.col_indices(), row_ptrs, memory_resource);
+		    coo.values(), coo.col_indices(), row_ptrs, coo_.num_cols(), memory_resource);
 	}
 	auto row_ptrs = coo_.get_ptrs();
-	return CSR_C(coo_.values(), coo_.col_indices(), row_ptrs, memory_resource);
+	return CSR_C(coo_.values(), coo_.col_indices(), row_ptrs, coo_.num_cols(), memory_resource);
 }
 
 } // namespace thrustshift
