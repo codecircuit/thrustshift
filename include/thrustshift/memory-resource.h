@@ -102,6 +102,10 @@ class delayed_pool_type : public std::pmr::memory_resource {
 		}
 	}
 
+	auto& get_book() const {
+		return book_;
+	}
+
    private:
 	void* do_allocate(size_t bytes, size_t alignment) override {
 		if (bytes == 0) {
