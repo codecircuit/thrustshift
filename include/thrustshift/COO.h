@@ -444,13 +444,14 @@ void get_diagonal(cuda::stream_t& stream, COO&& mtx, gsl_lite::span<T> diag) {
 /* \brief Transform two sparse COO matrices coefficient-wise `op(op_a(a), op_b(b))`.
  * \param a first sparse COO matrix.
  * \param b second sparse COO matrix.
+ * \param op Binary operator how coefficients at the same positions are combined.
  * \param op_a Unary operator which is applied to all non-zero coefficients of `a`.
  * \param op_b Unary operator which is applied to all non-zero coefficients of `b`.
- * \param op Binary operator how coefficients at the same positions are combined.
- * \return COO matrix allocated with `memory_resource`.
+ * \return COO matrix
  * \note It might be misleading that the binary operator is **not** applied to coefficients, which
  *   only appear in one of the two matrices. E.g. `op=minus`, `op_a=identity`, `op_b=identity` and `a` is a zero matrix the result
- *   is `result != a - b = -b`.
+ *   is `result != a - b = -b`. Also note that it cannot be ensured that the left operand of the binary operator
+ *   is always an element of `a`. Therefore the unary operators are required.
  */
 template <typename DataType,
           typename IndexType,
@@ -496,7 +497,7 @@ thrustshift::COO<DataType, IndexType> transform(
 	    thrust::make_tuple(row_indices.begin(), col_indices.begin()));
 	auto keys_end = keys_begin + nnz_a + nnz_b;
 
-	std::pmr::polymorphic_allocator<KeyT> alloc(&memory_resource);
+	std::pmr::polymorphic_allocator<char> alloc(&memory_resource);
 	thrust::sort_by_key(
 	    thrust::cuda::par(alloc), keys_begin, keys_end, values.begin());
 
@@ -516,8 +517,7 @@ thrustshift::COO<DataType, IndexType> transform(
 	//
 	// ```
 	// should work fine because the dtor of `res` is called before the dtor of `memory_resource`
-	COO<DataType, IndexType> result(
-	    nnz_result, num_rows, num_cols, memory_resource);
+	COO<DataType, IndexType> result(nnz_result, num_rows, num_cols);
 	auto keys_result_begin = thrust::make_zip_iterator(thrust::make_tuple(
 	    result.row_indices().begin(), result.col_indices().begin()));
 	thrust::reduce_by_key(thrust::cuda::par(alloc),
@@ -528,6 +528,7 @@ thrustshift::COO<DataType, IndexType> transform(
 	                      result.values().begin(),
 	                      thrust::equal_to<KeyT>(),
 	                      op);
+	result.set_storage_order(storage_order_t::row_major);
 	return result;
 }
 
