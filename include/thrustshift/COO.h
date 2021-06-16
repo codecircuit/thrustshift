@@ -19,6 +19,7 @@
 #include <thrustshift/copy.h>
 #include <thrustshift/equal.h>
 #include <thrustshift/managed-vector.h>
+#include <thrustshift/math.h>
 #include <thrustshift/memory-resource.h>
 #include <thrustshift/not-a-vector.h>
 #include <thrustshift/transform.h>
@@ -391,7 +392,7 @@ void diagmm(cuda::stream_t& stream,
 
 	const auto nnz = coo_mtx.values().size();
 	constexpr cuda::grid::block_dimension_t block_dim = 128;
-	const cuda::grid::dimension_t grid_dim = (nnz + block_dim - 1) / block_dim;
+	const cuda::grid::dimension_t grid_dim = ceil_divide(nnz, block_dim);
 	cuda::enqueue_launch(kernel::diagmm<RangeT, COO_T0, COO_I0, COO_T1, COO_I1>,
 	                     stream,
 	                     cuda::make_launch_config(grid_dim, block_dim),
