@@ -156,6 +156,11 @@ class COO {
 		storage_order_ = new_storage_order;
 	}
 
+	// If the storage order is changed externally
+	void set_storage_order(storage_order_t new_storage_order) {
+		storage_order_ = new_storage_order;
+	}
+
 	void transpose() {
 		std::swap(col_indices_, row_indices_);
 		std::swap(num_rows_, num_cols_);
