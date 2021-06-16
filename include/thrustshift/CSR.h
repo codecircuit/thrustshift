@@ -201,6 +201,16 @@ class CSR {
 };
 
 template <typename DataType, typename IndexType>
+bool operator==(const CSR<DataType, IndexType>& a,
+                const CSR<DataType, IndexType>& b) {
+	return equal(a.values(), b.values()) &&
+	       equal(a.col_indices(), b.col_indices()) &&
+	       equal(a.row_ptrs(), b.row_ptrs()) &&
+	       a.num_rows() == b.num_rows() && a.num_cols() == b.num_cols();
+}
+
+
+template <typename DataType, typename IndexType>
 class CSR_view {
 
    public:
