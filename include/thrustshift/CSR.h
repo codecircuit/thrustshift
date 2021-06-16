@@ -247,6 +247,8 @@ class CSR_view {
 		gsl_Expects(values.size() == col_indices.size());
 		gsl_Expects(row_ptrs.size() > 0);
 		gsl_ExpectsAudit(row_ptrs[0] == 0);
+		gsl_ExpectsAudit(row_ptrs.back() == values.size());
+		gsl_ExpectsAudit(std::is_sorted(row_ptrs.begin(), row_ptrs.end()));
 	}
 
 	CSR_view(const CSR_view& other) = default;
