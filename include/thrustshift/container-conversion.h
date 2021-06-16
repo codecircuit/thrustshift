@@ -6,6 +6,19 @@
 
 namespace thrustshift {
 
+template<class RowPtrsRange, class RowIndicesRange>
+void row_ptrs2row_indices(RowPtrsRange&& row_ptrs, RowIndicesRange&& row_indices) {
+	gsl_Expects(!row_ptrs.empty());
+	for (size_t row_id = 0; row_id < row_ptrs.size() - 1; ++row_id) {
+		// nns = not null space
+		for (auto nns_id = row_ptrs[row_id];
+		     nns_id < row_ptrs[row_id + 1];
+		     ++nns_id) {
+			row_indices[nns_id] = row_id;
+		}
+	}
+}
+
 /*! \brief Convert a CSR container to a COO container
  *
  *  Usage example:
@@ -28,14 +41,7 @@ COO_C csr2coo(CSR_C&& csr, MemoryResource& memory_resource) {
 	async::copy(stream, csr.values(), coo.values());
 	async::copy(stream, csr.col_indices(), coo.col_indices());
 
-	for (size_t row_id = 0; row_id < csr.row_ptrs().size() - 1; ++row_id) {
-		// nns = not null space
-		for (int nns_id = csr.row_ptrs()[row_id];
-		     nns_id < csr.row_ptrs()[row_id + 1];
-		     ++nns_id) {
-			coo.row_indices()[nns_id] = row_id;
-		}
-	}
+	row_ptrs2row_indices(csr.row_ptrs(), coo.row_indices());
 
 	coo.change_storage_order(storage_order_t::row_major);
 	stream.synchronize();
