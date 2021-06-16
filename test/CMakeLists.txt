@@ -17,6 +17,7 @@ add_executable(
   "test-bit-successive-permutation.cu"
   "test-count-leading-zeros.cu"
   "test-block-copy.cu"
+  "test-container-conversion.cu"
   "test-memory-resource.cu"
 )
 
