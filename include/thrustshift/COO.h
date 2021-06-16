@@ -559,4 +559,32 @@ COO<DataType, IndexType> symmetrize_abs(
 	    memory_resource);
 }
 
+template <typename DataType, typename IndexType, class MemoryResource>
+COO<DataType, IndexType> make_pattern_symmetric(
+    COO_view<const DataType, const IndexType> mtx,
+    MemoryResource& memory_resource) {
+
+	if (mtx.values().empty()) {
+		return COO<DataType, IndexType>(
+		    0, mtx.num_rows(), mtx.num_cols(), memory_resource);
+	}
+
+	COO_view<const DataType, const IndexType> mtx_trans(mtx.values(),
+	                                                    mtx.col_indices(),
+	                                                    mtx.row_indices(),
+	                                                    mtx.num_rows(),
+	                                                    mtx.num_cols());
+
+	auto identity = [] __device__(DataType x) { return x; };
+	auto make_zero = [] __device__(DataType x) { return DataType(0); };
+
+	return transform(
+	    mtx,
+	    mtx_trans,
+	    [] __device__(DataType x, DataType y) { return x + y; },
+	    identity,
+	    make_zero,
+	    memory_resource);
+}
+
 } // namespace thrustshift
