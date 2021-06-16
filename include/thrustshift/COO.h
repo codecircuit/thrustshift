@@ -538,20 +538,22 @@ COO<DataType, IndexType> symmetrize_abs(
     MemoryResource& memory_resource) {
 
 	if (mtx.values().empty()) {
-		return COO<DataType, IndexType>(0, mtx.num_rows(), mtx.num_cols(), memory_resource);
+		return COO<DataType, IndexType>(
+		    0, mtx.num_rows(), mtx.num_cols(), memory_resource);
 	}
 
-	COO_view<const DataType, const IndexType> mtx_trans(
-	    mtx.values(),
-	    mtx.col_indices(),
-	    mtx.row_indices(),
-	    mtx.num_rows(),
-	    mtx.num_cols());
+	COO_view<const DataType, const IndexType> mtx_trans(mtx.values(),
+	                                                    mtx.col_indices(),
+	                                                    mtx.row_indices(),
+	                                                    mtx.num_rows(),
+	                                                    mtx.num_cols());
+
 	auto abs = [] __device__(DataType x) { return std::abs(x); };
+
 	return transform(
 	    mtx,
 	    mtx_trans,
-	    [] __device__(DataType a, DataType b) { return a + b; },
+	    [] __device__(DataType x, DataType y) { return x + y; },
 	    abs,
 	    abs,
 	    memory_resource);
