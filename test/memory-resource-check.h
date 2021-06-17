@@ -20,12 +20,14 @@ void touch_all_memory_resource_pages(MemoryResource& memory_resource) {
 	for (const auto [k, v] : memory_resource.get_book()) {
 		for (const auto& page : v) {
 			BOOST_TEST(!page.allocated);
-			managed_vector<std::byte> dst(k.bytes);
-			gsl_lite::span<std::byte> src(
-			    reinterpret_cast<std::byte*>(page.ptr), k.bytes);
+			using T = std::byte;
+			const size_t N = k.bytes / sizeof(T);
+			managed_vector<T> dst(N);
+			gsl_lite::span<T> src(
+			    reinterpret_cast<T*>(page.ptr), N);
 			async::copy(stream, src, dst);
 			stream.synchronize();
-			for (size_t i = 0; i < k.bytes; ++i) {
+			for (size_t i = 0; i < N; ++i) {
 				dst[i] = src[i];
 			}
 		}

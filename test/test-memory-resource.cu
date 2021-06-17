@@ -72,16 +72,19 @@ BOOST_AUTO_TEST_CASE(test_memory_resource_with_thrusts_reduce_by_key) {
 	touch_all_memory_resource_pages(memory_resource);
 }
 
+namespace {
+
 template<class MemoryResource>
 std::pmr::vector<float> construct(MemoryResource& mres) {
 	const int N = 2401;
-	auto tmp = make_not_a_vector<float>(N * 2, mres);
-	[[maybe_unused]] auto s = tmp.to_span();
+	std::pmr::vector<float> v0(2 * N, &mres);
 	std::pmr::vector<float> v(N, &mres);
 	return v;
 }
 
-// Issue #2
+}
+
+// Closed Issue #2
 BOOST_AUTO_TEST_CASE(test_memory_resource_with_pmr_vector_construction, *boost::unit_test::disabled()) {
 	pmr::delayed_pool_type<pmr::managed_resource_type> memory_resource;
 	{

@@ -19,6 +19,7 @@ add_executable(
   "test-block-copy.cu"
   "test-container-conversion.cu"
   "test-memory-resource.cu"
+  "test-memory-resource.cpp"
 )
 
 include(CMakeshift/TargetCompileSettings)
@@ -31,6 +32,7 @@ cmakeshift_target_compile_settings(
 )
 
 target_compile_features(test-thrustshift PRIVATE cuda_std_17)
+target_compile_features(test-thrustshift PRIVATE cxx_std_17)
 
 target_compile_definitions(test-thrustshift PRIVATE
                            gsl_CONFIG_CONTRACT_VIOLATION_TERMINATES)

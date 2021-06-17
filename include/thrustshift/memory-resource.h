@@ -52,6 +52,24 @@ class device_resource_type : public std::pmr::memory_resource {
 	}
 };
 
+class host_resource_type : public std::pmr::memory_resource {
+	void* do_allocate(std::size_t bytes,
+	                  [[maybe_unused]] std::size_t alignment) override {
+		return malloc(bytes);
+	}
+
+	void do_deallocate(void* p,
+	                   [[maybe_unused]] std::size_t bytes,
+	                   [[maybe_unused]] std::size_t alignment) override {
+		free(p);
+	}
+
+	bool do_is_equal(
+	    const std::pmr::memory_resource& other) const noexcept override {
+		return this == &other;
+	}
+};
+
 namespace detail {
 
 struct page_id_type {
@@ -60,7 +78,10 @@ struct page_id_type {
 };
 
 inline bool operator<(const page_id_type& a, const page_id_type& b) {
-	return a.bytes < b.bytes && a.alignment < b.alignment;
+	if (a.bytes == b.bytes) {
+		return a.alignment < b.alignment;
+	}
+	return a.bytes < b.bytes;
 }
 
 } // namespace detail
@@ -111,7 +132,8 @@ class delayed_pool_type : public std::pmr::memory_resource {
 		if (bytes == 0) {
 			return nullptr;
 		}
-		if (auto it = book_.find({bytes, alignment}); it != book_.end()) {
+		const detail::page_id_type page_id({bytes, alignment});
+		if (auto it = book_.find(page_id); it != book_.end()) {
 			for (auto& page_item : it->second) {
 				if (!page_item.allocated) {
 					page_item.allocated = true;
@@ -125,17 +147,18 @@ class delayed_pool_type : public std::pmr::memory_resource {
 		}
 		// the required size was never allocated before
 		void* ptr = res_.allocate(bytes, alignment);
-		book_[{bytes, alignment}] = {{ptr, true}};
+		book_[page_id] = {{ptr, true}};
 		return ptr;
 	}
 
 	void do_deallocate(void* ptr,
 	                   size_t bytes,
 	                   size_t alignment) noexcept override {
+		const detail::page_id_type page_id({bytes, alignment});
 		if (ptr == nullptr || bytes == 0) {
 			return;
 		}
-		for (auto& page_item : book_[{bytes, alignment}]) {
+		for (auto& page_item : book_[page_id]) {
 			if (page_item.ptr == ptr && page_item.allocated) {
 				page_item.allocated = false;
 				return;
