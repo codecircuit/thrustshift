@@ -409,12 +409,14 @@ template <typename T0, typename I, typename T1>
 __global__ void get_diagonal(COO_view<const T0, const I> mtx,
                              gsl_lite::span<T1> diag) {
 
-	const auto gtid = threadIdx.x + blockDim.x * blockDim.x;
-	if (gtid < mtx.num_rows()) {
+	const auto gtid = threadIdx.x + blockIdx.x * blockDim.x;
+	const auto values = mtx.values();
+	const auto nnz = values.size();
+	if (gtid < nnz) {
 		const auto row_id = mtx.row_indices()[gtid];
 		const auto col_id = mtx.col_indices()[gtid];
 		if (row_id == col_id) {
-			diag[row_id] = mtx.values()[gtid];
+			diag[row_id] = values[gtid];
 		}
 	}
 }
@@ -426,17 +428,22 @@ namespace async {
 template <typename T, class COO>
 void get_diagonal(cuda::stream_t& stream, COO&& mtx, gsl_lite::span<T> diag) {
 
+	gsl_Expects(diag.size() == std::min(mtx.num_rows(), mtx.num_cols()));
 	using I = typename std::remove_reference<COO>::type::index_type;
 	using T0 = typename std::remove_reference<COO>::type::value_type;
 	const auto nnz = mtx.values().size();
 	constexpr cuda::grid::block_dimension_t block_dim = 128;
-	const cuda::grid::dimension_t grid_dim = ceil_divide(gsl_lite::narrow<cuda::grid::dimension_t>(nnz), gsl_lite::narrow<cuda::grid::dimension_t>(block_dim));
+	const cuda::grid::dimension_t grid_dim =
+	    ceil_divide(gsl_lite::narrow<cuda::grid::dimension_t>(nnz),
+	                gsl_lite::narrow<cuda::grid::dimension_t>(block_dim));
 	fill(stream, diag, 0);
-	cuda::enqueue_launch(kernel::get_diagonal<T0, I, T>,
-	                     stream,
-	                     cuda::make_launch_config(grid_dim, block_dim),
-	                     mtx,
-	                     diag);
+	if (nnz != 0) {
+		cuda::enqueue_launch(kernel::get_diagonal<T0, I, T>,
+		                     stream,
+		                     cuda::make_launch_config(grid_dim, block_dim),
+		                     mtx,
+		                     diag);
+	}
 }
 
 } // namespace async
@@ -517,7 +524,8 @@ thrustshift::COO<DataType, IndexType> transform(
 	//
 	// ```
 	// should work fine because the dtor of `res` is called before the dtor of `memory_resource`
-	COO<DataType, IndexType> result(nnz_result, num_rows, num_cols, memory_resource);
+	COO<DataType, IndexType> result(
+	    nnz_result, num_rows, num_cols, memory_resource);
 	auto keys_result_begin = thrust::make_zip_iterator(thrust::make_tuple(
 	    result.row_indices().begin(), result.col_indices().begin()));
 	thrust::reduce_by_key(thrust::cuda::par(alloc),

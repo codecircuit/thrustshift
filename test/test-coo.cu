@@ -33,7 +33,8 @@ struct test_data_t {
 	size_t num_cols;
 };
 
-inline std::ostream& operator<<(std::ostream& os, [[maybe_unused]] const test_data_t& td) {
+inline std::ostream& operator<<(std::ostream& os,
+                                [[maybe_unused]] const test_data_t& td) {
 	return os;
 }
 
@@ -59,10 +60,10 @@ const std::vector<test_data_t> test_data = {
 	},
 	{
 		{1, 1, 1},
-		{3, 3, 3},
-		{3, 3, 3},
-		{0, 0, 0, 0, 3, 3},
-		{0, 0, 0, 0, 3, 3, 3},
+		{2, 3, 4},
+		{2, 3, 4},
+		{0, 0, 0, 1, 2, 3},
+		{0, 0, 0, 1, 2, 3, 3},
 		5,
 		6
 	},
@@ -184,5 +185,29 @@ BOOST_AUTO_TEST_CASE(test_symmetrize_abs_coo_matrix_store) {
 		}
 
 		touch_all_memory_resource_pages(memory_resource);
+	}
+}
+
+BOOST_DATA_TEST_CASE(test_coo_get_diagonal, test_data, td) {
+
+	auto device = cuda::device::current::get();
+	auto stream = device.default_stream();
+
+	// Symmetrize test are undefined on non-square matrices
+	thrustshift::COO<float, int> coo(
+	    td.values, td.row_indices, td.col_indices, td.num_rows, td.num_cols);
+
+	const size_t N = std::min(coo.num_rows(), coo.num_cols());
+
+	thrustshift::managed_vector<float> diagonal(N);
+
+	Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> eigen_mtx = eigen::coo2sparse_mtx<Eigen::SparseMatrix<float>>(coo);
+	async::get_diagonal<float>(stream, coo, diagonal);
+	stream.synchronize();
+	auto eig_diag = eigen_mtx.diagonal();
+	for (size_t i = 0; i < N; ++i) {
+		BOOST_TEST_CONTEXT("row_id = " << i << ", eigen_diag = " << eig_diag[i] << ", thrustshift_diag = " << diagonal[i]) {
+			BOOST_TEST(eig_diag[i] == diagonal[i]);
+		}
 	}
 }
