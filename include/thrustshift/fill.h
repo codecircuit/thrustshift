@@ -1,6 +1,10 @@
 #pragma once
 
+#include <gsl-lite/gsl-lite.hpp>
+
 #include <cuda/runtime_api.hpp>
+
+#include <thrustshift/math.h>
 
 namespace thrustshift {
 
@@ -23,15 +27,17 @@ void fill(cuda::stream_t& stream, Range&& r, T val) {
 
 	constexpr cuda::grid::block_dimension_t block_dim = 256;
 	const cuda::grid::dimension_t grid_dim =
-	    (r.size() + block_dim - 1) / block_dim;
+	    ceil_divide(r.size(), gsl_lite::narrow<decltype(r.size())>(block_dim));
 
-	using RangeT = typename std::remove_reference<Range>::type;
+	using RangeT = typename std::remove_reference<Range>::type::value_type;
 
-	cuda::enqueue_launch(kernel::fill<T, RangeT>,
-	                     stream,
-	                     cuda::make_launch_config(grid_dim, block_dim),
-	                     r,
-	                     val);
+	if (!r.empty()) {
+		cuda::enqueue_launch(kernel::fill<T, gsl_lite::span<RangeT>>,
+		                     stream,
+		                     cuda::make_launch_config(grid_dim, block_dim),
+		                     r,
+		                     val);
+	}
 }
 
 } // namespace async
