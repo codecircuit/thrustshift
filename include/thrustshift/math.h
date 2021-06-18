@@ -6,6 +6,22 @@
 
 namespace thrustshift {
 
+namespace detail {
+
+template <typename I, std::enable_if_t<std::is_signed<I>::value, bool> = true>
+CUDA_FHD I abs_(I i) {
+	return i < I(0) ? I(-1) * i : i;
+}
+
+// To prevent compiler warnings about unnecassary comparisons of unsigned types
+// and zero
+template <typename I, std::enable_if_t<std::is_unsigned<I>::value, bool> = true>
+CUDA_FHD I abs_(I i) {
+	return i;
+}
+
+} // namespace detail
+
 /*! \brief divide and ceil two integral numbers.
  *
  *  Examples:
@@ -30,11 +46,11 @@ CUDA_FHD I ceil_divide(I a, I b) {
 		return 0;
 	}
 	gsl_Expects(b != I(0));
+
 	// Do not use `std::abs` because there are no specializations for
 	// unsigned types. Then the compiler does not know which overload it
 	// should use if e.g. `ceil_divide(10llu, 5llu)` is called.
-	auto abs_ = [](I x) { return x < I(0) ? I(-1) * x : x; };
-	if (abs_(b) > abs_(a)) {
+	if (detail::abs_(b) > detail::abs_(a)) {
 		return I(1) * sign_(b) * sign_(a);
 	}
 	return a / b + (a % b == 0 ? 0 : (sign_(b) * sign_(a)));
