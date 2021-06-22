@@ -12,8 +12,11 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <thrustshift/managed-vector.h>
 #include <thrustshift/bit.h>
+#include <thrustshift/gather.h>
+#include <thrustshift/managed-vector.h>
+#include <thrustshift/not-a-vector.h>
+#include <thrustshift/scatter.h>
 
 namespace thrustshift {
 
@@ -24,8 +27,14 @@ namespace permutation {
  *   \param result `result[i]` is the index of element \f$ a_i \f$
  *     after permutation \f$ P_b \f$ is applied to the natural order.
  */
-template <class PermutationA, class PermutationB, class ResultPermutation>
-void multiply(PermutationA&& a, PermutationB&& b, ResultPermutation&& result) {
+template <class PermutationA,
+          class PermutationB,
+          class ResultPermutation,
+          class MemoryResource>
+void multiply(PermutationA&& a,
+              PermutationB&& b,
+              ResultPermutation&& result,
+              MemoryResource& memory_resource) {
 
 	gsl_Expects(a.size() == b.size());
 	gsl_Expects(result.size() == a.size());
@@ -33,7 +42,8 @@ void multiply(PermutationA&& a, PermutationB&& b, ResultPermutation&& result) {
 	using ResultIndex =
 	    typename std::remove_reference<ResultPermutation>::type::value_type;
 
-	managed_vector<ResultIndex> tmp(result.size());
+	auto [__, tmp] =
+	    make_not_a_vector_and_span<ResultIndex>(result.size(), memory_resource);
 
 	auto cit_begin = thrust::make_counting_iterator(ResultIndex(0));
 	auto cit_end = thrust::make_counting_iterator(
@@ -69,9 +79,12 @@ void multiply(PermutationA&& a, PermutationB&& b, ResultPermutation&& result) {
  *  \param merged_permutations Range of size N - 1 with ranges of length L each.
  *    merged_permutations[i] = \f$P_{i+1} P_{i}^T\f$
  */
-template <class InputPermutations, class MergedPermutations>
+template <class InputPermutations,
+          class MergedPermutations,
+          class MemoryResource>
 void multiply_successive(InputPermutations&& input_permutations,
-                         MergedPermutations&& multiplied_permutations) {
+                         MergedPermutations&& multiplied_permutations,
+                         MemoryResource& memory_resource) {
 
 	const auto N = input_permutations.size();
 
@@ -85,7 +98,8 @@ void multiply_successive(InputPermutations&& input_permutations,
 	for (size_t i = 0; i < input_permutations.size() - 1; ++i) {
 		multiply(input_permutations[i],
 		         input_permutations[i + 1],
-		         multiplied_permutations[i]);
+		         multiplied_permutations[i],
+		         memory_resource);
 	}
 }
 
@@ -127,7 +141,8 @@ template <class BitPatternT>
 class bit_successive_permutation_t {
 
    public:
-	CUDA_FHD bit_successive_permutation_t(int N) : bit_pattern_(BitPatternT(1) << (N-1)) {
+	CUDA_FHD bit_successive_permutation_t(int N)
+	    : bit_pattern_(BitPatternT(1) << (N - 1)) {
 		gsl_Expects(N <= sizeof(BitPatternT) * 8);
 #ifndef NDEBUG
 		N_ = N;
