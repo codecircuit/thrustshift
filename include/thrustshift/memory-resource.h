@@ -178,6 +178,104 @@ class delayed_pool_type : public std::pmr::memory_resource {
 	std::map<detail::page_id_type, std::vector<page_item_type>> book_;
 };
 
+/*! \brief Allocates only if there is no buffer in the free pool which is of the required size or larger.
+ *
+ *  This pool searches for the smallest buffer in the pool which has the required alignment and is
+ *  of equal or larger byte size than the required buffer and returns that buffer if do_allocate is called.
+ *  Morevover, this pool has the same 'delayed' properties than the `delayed_pool_type`.
+ *
+ *  \sa delayed_pool_type
+ *  \note std::pmr compatible
+ */
+template <class Upstream>
+class delayed_fragmenting_pool_type : public std::pmr::memory_resource {
+   private:
+
+	struct page_item_type {
+		void* ptr;
+		bool allocated;
+	};
+
+   public:
+	delayed_fragmenting_pool_type() = default;
+
+	~delayed_fragmenting_pool_type() noexcept {
+		for (auto& [page_id, book_page] : book_) {
+			for (auto& page_item : book_page) {
+				res_.deallocate(
+				    page_item.ptr, page_id.bytes, page_id.alignment);
+			}
+		}
+	}
+
+	auto& get_book() const {
+		return book_;
+	}
+
+   private:
+	void* do_allocate(size_t bytes, size_t alignment) override {
+		if (bytes == 0) {
+			return nullptr;
+		}
+		const detail::page_id_type page_id({bytes, alignment});
+		for (auto& [k, v] : book_) {
+			if (k.alignment == alignment && k.bytes >= bytes) {
+				for (auto& p : v) {
+					if (!p.allocated) {
+						p.allocated = true;
+						return p.ptr;
+					}
+				}
+			}
+		}
+		// no page item was free
+		if (auto it = book_.find(page_id); it != book_.end()) {
+			void* ptr = res_.allocate(bytes, alignment);
+			it->second.push_back({ptr, true});
+			return ptr;
+		}
+		// the required size was never allocated before
+		void* ptr = res_.allocate(bytes, alignment);
+		book_[page_id] = {{ptr, true}};
+		return ptr;
+	}
+
+	void do_deallocate(void* ptr,
+	                   size_t bytes,
+	                   size_t alignment) noexcept override {
+		const detail::page_id_type page_id({bytes, alignment});
+
+		if (ptr == nullptr || bytes == 0) {
+			return;
+		}
+
+		for (auto& [k, v] : book_) {
+			if (k.alignment == alignment && k.bytes >= bytes) {
+				for (auto& p : v) {
+					// no comparison based on the bytes because the buffer can be larger
+					// than the amount of requested bytes.
+					if (p.ptr == ptr && p.allocated) {
+						p.allocated = false;
+						return;
+					}
+				}
+			}
+		}
+
+		// The pointer which should be deallocated was never allocated before
+		std::terminate();
+	}
+
+	bool do_is_equal(
+	    const std::pmr::memory_resource& other) const noexcept override {
+		return this == &other;
+	}
+
+	Upstream res_;
+	// size in bytes -> (ptr, alignment)
+	std::map<detail::page_id_type, std::vector<page_item_type>> book_;
+};
+
 static managed_resource_type default_resource;
 
 } // namespace pmr
