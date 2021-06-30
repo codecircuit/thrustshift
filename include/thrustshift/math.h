@@ -98,4 +98,28 @@ CUDA_FHD bool operator<=(const AbsView<T>& a, const AbsView<T>& b) {
 	return abs(a.value) <= abs(b.value);
 }
 
+/* \brief Calculate sinus and cosinus with fast CUDA math API.
+ *
+ * Usage example:
+ * ```
+ * auto [s, c] = thrustshift::sincos(x);
+ * ```
+ */
+template<typename T>
+CUDA_FHD std::tuple<T, T> sincos(T x) {
+	T sin_result, cos_result;
+#ifdef __CUDA_ARCH__
+	if constexpr (std::is_same<T, double>::value) {
+		::sincos(x, &sin_result, &cos_result);
+	}
+	else if constexpr (std::is_same<T, float>::value) {
+		sincosf(x, &sin_result, &cos_result);
+	}
+#else
+	sin_result = std::sin(x);
+	cos_result = std::cos(x);
+#endif
+	return {sin_result, cos_result};
+}
+
 } // namespace thrustshift
