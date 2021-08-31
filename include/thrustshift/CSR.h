@@ -286,8 +286,9 @@ class CSR_view {
 		return num_cols_;
 	}
 
-	CUDA_FHD IndexType max_row_nnz() const {
-		IndexType mnnz = 0;
+	CUDA_FHD auto max_row_nnz() const {
+		using I = typename std::remove_const<IndexType>::type;
+		I mnnz = 0;
 		for (size_t row_id = 1; row_id < row_ptrs_.size(); ++row_id) {
 			mnnz = std::max(row_ptrs_[row_id] - row_ptrs_[row_id - 1], mnnz);
 		}
