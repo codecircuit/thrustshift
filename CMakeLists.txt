@@ -20,6 +20,7 @@ cmakeshift_install_basic_package_files(
   EXPORT
   thrustshift
   DEPENDENCIES
+  "CMakeshift"
   "cuda-api-wrappers"
   "CUB"
   "sysmakeshift"
