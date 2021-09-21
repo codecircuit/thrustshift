@@ -128,6 +128,9 @@ BOOST_DATA_TEST_CASE(test_coo, test_data, td) {
 BOOST_AUTO_TEST_CASE(test_coo_ctors) {
 
 	thrustshift::COO<float, int> coo(10, 10, 10);
+	thrustshift::COO<float, int> coo2(coo);
+	thrustshift::COO<float, int> coo3 = coo;
+	auto coo4 = coo;
 	thrustshift::COO_view<float, int> view0(coo);
 	[[maybe_unused]] gsl_lite::span<float> s0 = view0.values();
 	thrustshift::COO_view<const float, int> view1(coo);
