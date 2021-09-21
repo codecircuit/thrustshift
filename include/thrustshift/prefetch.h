@@ -8,8 +8,8 @@ namespace thrustshift {
 
 namespace async {
 
-template <class Range>
-void prefetch(cuda::stream_t& stream, cuda::device_t& device, Range&& r) {
+template <class Range, class Device>
+void prefetch(cuda::stream_t& stream, Device&& device, Range&& r) {
 	using T_ = typename std::remove_reference<Range>::type::value_type;
 	// Due to missing const_range in cuda-api-wrappers
 	using T = typename std::remove_const<T_>::type;
