@@ -1,8 +1,11 @@
 #pragma once
 
 #include <type_traits>
+#include <utility>
 
+#include <cuda/define_specifiers.hpp>
 #include <cuda/runtime_api.hpp>
+
 #include <gsl-lite/gsl-lite.hpp>
 
 namespace thrustshift {
@@ -49,5 +52,35 @@ void transform(cuda::stream_t& stream,
 }
 
 } // namespace async
+
+namespace array {
+
+namespace detail {
+
+template <typename T,
+          std::size_t N,
+          template <typename, std::size_t>
+          class Arr,
+          class F,
+          std::size_t... I>
+CUDA_FHD auto transform_impl(const Arr<T, N>& arr,
+                             F&& f,
+                             std::index_sequence<I...>) {
+	return Arr<T, N>({f(arr[I])...});
+}
+
+} // namespace detail
+
+template <typename T,
+          std::size_t N,
+          template <typename, std::size_t>
+          class Arr,
+          class F,
+          typename Indices = std::make_index_sequence<N>>
+CUDA_FHD auto transform(const Arr<T, N>& arr, F&& f) {
+	return detail::transform_impl(arr, std::forward<F>(f), Indices{});
+}
+
+} // namespace array
 
 } // namespace thrustshift
