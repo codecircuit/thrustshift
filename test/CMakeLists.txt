@@ -20,7 +20,7 @@ add_executable(
   "test-container-conversion.cu"
   "test-memory-resource.cu"
   "test-memory-resource.cpp"
-  "test-array-transform.cu"
+  "test-array-tuple-transform.cu"
 )
 
 include(CMakeshift/TargetCompileSettings)
