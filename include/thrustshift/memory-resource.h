@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef> // std::byte
 #include <map>
+#include <memory> // std::align
 #include <memory_resource>
 #include <vector>
 
@@ -190,7 +192,6 @@ class delayed_pool_type : public std::pmr::memory_resource {
 template <class Upstream>
 class delayed_fragmenting_pool_type : public std::pmr::memory_resource {
    private:
-
 	struct page_item_type {
 		void* ptr;
 		bool allocated;
@@ -274,6 +275,53 @@ class delayed_fragmenting_pool_type : public std::pmr::memory_resource {
 	Upstream res_;
 	// size in bytes -> (ptr, alignment)
 	std::map<detail::page_id_type, std::vector<page_item_type>> book_;
+};
+
+/*! \brief Wraps a memory resource around an existing buffer of fixed size.
+ *
+ *  This class takes a pointer and a size of an existing buffer and wraps a memory
+ *  resource around that buffer. The resource can provide parts of that buffer by
+ *  calling `do_allocate` and simply returns subsequently aligned parts of the buffer.
+ *  If the buffer size is exceeded `gsl_FailFast()` is called.
+ *
+ *  \note std::pmr compatible
+ */
+class wrapping_resource_type : public std::pmr::memory_resource {
+
+   public:
+	wrapping_resource_type(void* ptr, size_t size_in_bytes)
+	    : size_in_bytes_(size_in_bytes), ptr_(ptr) {
+		static_assert(sizeof(std::byte) == 1);
+	}
+
+   private:
+	void* do_allocate(size_t bytes, size_t alignment) noexcept override {
+		if (bytes == 0) {
+			return nullptr;
+		}
+		void* ptr = std::align(alignment, bytes, ptr_, size_in_bytes_);
+		gsl_Expects(ptr); // not nullptr
+		gsl_Expects(
+		    ptr ==
+		    ptr_); // this is how I understand the function documentation of std::align
+		gsl_Expects(size_in_bytes_ >= bytes);
+		size_in_bytes_ -= bytes;
+		ptr_ = reinterpret_cast<std::byte*>(ptr_) + bytes;
+		return ptr;
+	}
+
+	void do_deallocate(void* ptr,
+	                   size_t bytes,
+	                   size_t alignment) noexcept override {
+	}
+
+	bool do_is_equal(
+	    const std::pmr::memory_resource& other) const noexcept override {
+		return this == &other;
+	}
+
+	size_t size_in_bytes_;
+	void* ptr_;
 };
 
 static managed_resource_type default_resource;
