@@ -83,4 +83,26 @@ CUDA_FHD auto transform(const Arr<T, N>& arr, F&& f) {
 
 } // namespace array
 
+namespace tuple {
+
+namespace detail {
+
+template <typename Tuple, typename F, std::size_t... I>
+CUDA_FHD auto transform_impl(Tuple&& t, F&& f, std::index_sequence<I...>) {
+	using TupleT = typename std::remove_reference<Tuple>::type;
+	using std::get;
+	return TupleT(f(get<I>(t))...);
+}
+
+} // namespace detail
+
+template <typename... Ts, template <typename...> class TupleT, typename F>
+CUDA_FHD auto transform(TupleT<Ts...> const& t, F&& f) {
+	using std::tuple_size;
+	auto seq = std::make_index_sequence<tuple_size<TupleT<Ts...>>::value>{};
+	return detail::transform_impl(t, std::forward<F>(f), seq);
+}
+
+} // namespace tuple
+
 } // namespace thrustshift
