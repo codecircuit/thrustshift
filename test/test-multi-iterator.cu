@@ -102,13 +102,6 @@ BOOST_AUTO_TEST_CASE(test_arithmetic_multi_iterator) {
 		mi[i] += 3 * i;
 	}
 
-	for (int i = 0; i < 30; ++i) {
-		std::cout << "v[" << i << "] = " << v[i] << std::endl;
-	}
-
-
-	std::cout << "\n\n";
-
 	mi[7] = (mi[6] + mi[5] * 3.1654) / mi[0];
 
 	std::array<double, 3> arr{};
@@ -119,7 +112,4 @@ BOOST_AUTO_TEST_CASE(test_arithmetic_multi_iterator) {
 	BOOST_TEST(arr[1] == v[17]);
 	BOOST_TEST(arr[2] == v[27]);
 
-	for (int i = 0; i < 30; ++i) {
-		std::cout << "v[" << i << "] = " << v[i] << std::endl;
-	}
 }
