@@ -310,9 +310,9 @@ class wrapping_resource_type : public std::pmr::memory_resource {
 		return ptr;
 	}
 
-	void do_deallocate(void* ptr,
-	                   size_t bytes,
-	                   size_t alignment) noexcept override {
+	void do_deallocate([[maybe_unused]] void* ptr,
+	                   [[maybe_unused]] size_t bytes,
+	                   [[maybe_unused]] size_t alignment) noexcept override {
 	}
 
 	bool do_is_equal(
