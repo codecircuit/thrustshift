@@ -17,6 +17,16 @@
 #include <thrustshift/transform.h>
 #include <thrustshift/type-traits.h>
 
+/*! \file arithmetic-multi-iterator-reference.h
+ *  \brief Reference type with vector-like arithmetic support
+ *
+ *  The values are represented in tuples because multiple references of
+ *  different iterators cannot be represented as an array of references,
+ *  as an array must be saved by consecutive memory. The arithmetic
+ *  tuple type also uses tuples to make it easier for the compiler to
+ *  convert between different tuple types.
+ *
+ */
 namespace thrustshift {
 
 namespace detail {
@@ -52,9 +62,6 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 	template <class T>
 	CUDA_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
 	operator+=(T&& t) {
-
-		// Alternatively to a `if constexpr` it should be possible to use
-		// `std::enable_if`, but I could not get it working correctly.
 		if constexpr (std::is_convertible<typename std::decay<T>::type,
 		                                  value_type>::value) {
 			tuple::for_each(static_cast<parent_t&>(*this),
@@ -76,9 +83,6 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 	template <class T>
 	CUDA_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
 	operator-=(T&& t) {
-
-		// Alternatively to a `if constexpr` it should be possible to use
-		// `std::enable_if`, but I could not get it working correctly.
 		if constexpr (std::is_convertible<typename std::decay<T>::type,
 		                                  value_type>::value) {
 			tuple::for_each(static_cast<parent_t&>(*this),
@@ -89,7 +93,6 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 			using std::get;
 			using other_value_type =
 			    typename std::decay<decltype(get<0>(t))>::type;
-			// - NOTE: using a device lambda here, results into a compiler error.
 			tuple::for_each(
 			    static_cast<parent_t&>(*this),
 			    static_cast<tuple_value_type>(t),
@@ -114,7 +117,6 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 			using std::get;
 			using other_value_type =
 			    typename std::decay<decltype(get<0>(t))>::type;
-			// - NOTE: using a device lambda here, results into a compiler error.
 			tuple::for_each(
 			    static_cast<parent_t&>(*this),
 			    static_cast<tuple_value_type>(t),
@@ -126,9 +128,6 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 	template <class T>
 	CUDA_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
 	operator/=(T&& t) {
-
-		// Alternatively to a `if constexpr` it should be possible to use
-		// `std::enable_if`, but I could not get it working correctly.
 		if constexpr (std::is_convertible<typename std::decay<T>::type,
 		                                  value_type>::value) {
 			tuple::for_each(static_cast<parent_t&>(*this),
@@ -139,7 +138,6 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 			using std::get;
 			using other_value_type =
 			    typename std::decay<decltype(get<0>(t))>::type;
-			// - NOTE: using a device lambda here, results into a compiler error.
 			tuple::for_each(
 			    static_cast<parent_t&>(*this),
 			    static_cast<tuple_value_type>(t),
@@ -332,6 +330,8 @@ CUDA_FHD auto operator+(
 	    arithmetic_multi_iterator_reference_base<Ref, N, Parent>::value_type;
 	arithmetic_tuple<T, N> result{tup};
 	using parent_t = typename arithmetic_tuple<T, N>::parent_t;
+	// A device lambda here in combination with `std::enable_if_t` results into
+	// an internal compiler error.
 	tuple::for_each(static_cast<parent_t&>(result),
 	                left_plus_equal_assign_constant<T&, T>(scalar));
 	return result;
@@ -398,6 +398,8 @@ CUDA_FHD auto operator*(
 	    arithmetic_multi_iterator_reference_base<Ref, N, Parent>::value_type;
 	arithmetic_tuple<T, N> result{tup};
 	using parent_t = typename arithmetic_tuple<T, N>::parent_t;
+	// A device lambda here in combination with `std::enable_if_t` results into
+	// an internal compiler error.
 	tuple::for_each(static_cast<parent_t&>(result),
 	                left_multiply_equal_assign_constant<T&, T>(scalar));
 	return result;

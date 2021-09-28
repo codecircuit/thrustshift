@@ -16,13 +16,6 @@
 
 namespace thrustshift {
 
-// 1. Use a tuple to represent the references, array does not work, as an array must represent
-//    continous lying data.
-// 2. Use a vector type, which can be constructed from tuples or tuple references or arrays, to
-//    implement the arithmetic operations. Later assign the tuple references to the vector with the
-//    arithmetic result.
-//
-
 template <class Ref, std::size_t N>
 using multi_iterator_reference = typename make_thrust_tuple_type<Ref, N>::type;
 
