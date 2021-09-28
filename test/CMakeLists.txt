@@ -20,7 +20,10 @@ add_executable(
   "test-container-conversion.cu"
   "test-memory-resource.cu"
   "test-memory-resource.cpp"
+  "test-multi-iterator.cu"
   "test-array-tuple-transform.cu"
+  "test-type-traits.cu"
+  "test-for-each.cu"
 )
 
 include(CMakeshift/TargetCompileSettings)
@@ -50,7 +53,6 @@ target_link_libraries(
   PRIVATE Boost::unit_test_framework Boost::filesystem thrustshift Eigen3::Eigen matrixmarket::matrixmarket
 )
 
-target_compile_definitions(test-thrustshift PRIVATE EIGEN_NO_CUDA)
 target_compile_definitions(test-thrustshift PRIVATE gsl_CONFIG_CONTRACT_CHECKING_AUDIT)
 
 add_test(NAME "test-thrustshift" COMMAND test-thrustshift)

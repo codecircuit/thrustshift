@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <type_traits>
 #include <vector>
 
 #include <gsl-lite/gsl-lite.hpp>
@@ -14,8 +15,8 @@
 
 #include <thrustshift/COO.h>
 #include <thrustshift/CSR.h>
-#include <thrustshift/equal.h>
 #include <thrustshift/container-conversion.h>
+#include <thrustshift/equal.h>
 #include <thrustshift/eigen3>
 
 namespace bdata = boost::unit_test::data;
@@ -32,7 +33,8 @@ struct test_data_t {
 	size_t num_cols;
 };
 
-inline std::ostream& operator<<(std::ostream& os, [[maybe_unused]] const test_data_t& td) {
+inline std::ostream& operator<<(std::ostream& os,
+                                [[maybe_unused]] const test_data_t& td) {
 	return os;
 }
 
@@ -106,12 +108,29 @@ BOOST_DATA_TEST_CASE(test_container_conversion, test_data, td) {
 }
 
 BOOST_AUTO_TEST_CASE(test_container_conversion_matrix_store) {
-	const std::string pth = "/mnt/matrix_store/ModelPDEs/A_problem4n256square/A_problem4n256square.mtx";
-	Eigen::SparseMatrix<float> eigen_mtx = matrixmarket::readEigenSparseFromFile<float>(pth);
+	const std::string pth =
+	    "/mnt/matrix_store/ModelPDEs/A_problem4n256square/"
+	    "A_problem4n256square.mtx";
+	Eigen::SparseMatrix<float> eigen_mtx =
+	    matrixmarket::readEigenSparseFromFile<float>(pth);
 	pmr::delayed_pool_type<pmr::managed_resource_type> delayed_memory_resource;
 	auto csr = eigen::sparse_mtx2csr(eigen_mtx);
 	auto coo = csr2coo<COO<float, int>>(csr, delayed_memory_resource);
 	auto csr2 = coo2csr<CSR<float, int>>(coo, delayed_memory_resource);
 	const bool b = csr == csr2;
+	BOOST_TEST(b);
+}
+
+BOOST_AUTO_TEST_CASE(test_tuple_to_array_conversion) {
+
+	std::tuple<double, double, double> tup(1, 2, 3);
+
+	auto arr = tuple2kat_array(tup);
+	BOOST_TEST(arr[0] == 1.0);
+	BOOST_TEST(arr[1] == 2.0);
+	BOOST_TEST(arr[2] == 3.0);
+	BOOST_TEST(arr.size() == 3);
+	using ArrayT = decltype(arr);
+	constexpr bool b = std::is_same<double, ArrayT::value_type>::value;
 	BOOST_TEST(b);
 }
