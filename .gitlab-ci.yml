@@ -5,9 +5,10 @@ variables:
 
 build-release:
   stage: build
-  artifacts:
-    untracked: true # keep all files which are created in this stage
-    expire_in: 2 hrs
+  cache:
+    key: release-binaries-cache
+    paths:
+      - build/release/
   script:
     - mkdir -p build/release
     - cmake -S . -B build/release -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
@@ -15,9 +16,10 @@ build-release:
 
 build-debug:
   stage: build
-  artifacts:
-    untracked: true # keep all files which are created in this stage
-    expire_in: 2 hrs
+  cache:
+    key: debug-binaries-cache
+    paths:
+      - build/debug/
   script:
     - mkdir -p build/debug
     - cmake -S . -B build/debug -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
@@ -25,11 +27,19 @@ build-debug:
 
 test-release:
   stage: test
+  cache:
+    key: release-binaries-cache
+    paths:
+      - build/release/
   script:
     - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE ./build/release/test-thrustshift
 
 test-release-sanitizer:
   stage: test
+  cache:
+    key: release-binaries-cache
+    paths:
+      - build/release/
   script:
     - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE compute-sanitizer ./build/release/test-thrustshift
     - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE compute-sanitizer --tool racecheck ./build/release/test-thrustshift
@@ -37,16 +47,28 @@ test-release-sanitizer:
 
 test-release-valgrind:
   stage: test
+  cache:
+    key: release-binaries-cache
+    paths:
+      - build/release/
   script:
     - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE valgrind ./build/release/test-thrustshift
 
 test-debug:
   stage: test
+  cache:
+    key: debug-binaries-cache
+    paths:
+      - build/debug/
   script:
     - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE ./build/debug/test-thrustshift
 
 test-debug-sanitizer:
   stage: test
+  cache:
+    key: debug-binaries-cache
+    paths:
+      - build/debug/
   script:
     - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE compute-sanitizer ./build/debug/test-thrustshift
     - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE compute-sanitizer --tool racecheck ./build/debug/test-thrustshift
@@ -54,5 +76,9 @@ test-debug-sanitizer:
 
 test-debug-valgrind:
   stage: test
+  cache:
+    key: debug-binaries-cache
+    paths:
+      - build/debug/
   script:
     - srun -w mp-skl2s8c -p captureskl --exclusive --nice=$SLURM_NICE_VALUE valgrind ./build/debug/test-thrustshift
