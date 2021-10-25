@@ -3,9 +3,8 @@
 #include <cuda/define_specifiers.hpp>
 
 /*! \file functional.h
- *   \brief Useful when device lambdas result into compliler errors
+ *  \brief Useful when device lambdas result into compliler errors
  */
-
 
 namespace thrustshift {
 
