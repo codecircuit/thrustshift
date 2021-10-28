@@ -46,7 +46,11 @@ CUDA_FD void sum_subsequent_into(const T* p, T* result, int tid) {
 }
 
 template <typename T>
-CUDA_FD void bin_value(T x, int bit_offset, uint64_t prefix, int* histogram) {
+CUDA_FD void bin_value(T x,
+                       int bit_offset,
+                       uint64_t prefix,
+                       int* histogram,
+                       bool valid_write) {
 
 	using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
 	using K = uint8_t;
@@ -59,9 +63,46 @@ CUDA_FD void bin_value(T x, int bit_offset, uint64_t prefix, int* histogram) {
 	const I i = *reinterpret_cast<I*>((void*) (&x));
 	const K b = (i >> (sizeof(I) * 8 - bit_size - bit_offset)) &
 	            I(std::numeric_limits<K>::max());
+
+	//	// NOTE: in a trivial implementation the value is just incremented atomically
+	// 	if ((i >> sizeof(I) * 8 - bit_offset) == static_cast<I>(prefix) &&
+	// 	    valid_write) {
+	// 		atomicAdd(histogram + b, 1);
+	// 	}
+
+	int bi = b;
+	int k = 1; // increment of the bin
 	// Only count values which start with the given prefix pattern
-	if ((i >> sizeof(I) * 8 - bit_offset) == static_cast<I>(prefix)) {
-		atomicAdd(histogram + b, 1);
+	if ((i >> sizeof(I) * 8 - bit_offset) != static_cast<I>(prefix) ||
+	    !valid_write) {
+		bi = -1; // value has different prefix
+		k = 0;
+	}
+
+	// Threads with higher ID take precedence over those with low ID and the
+	// same bin.
+	const int lane_id = threadIdx.x % warpSize;
+
+	// NOTE: In the following `__match_any_sync` the threads of the current warp must
+	// sync. Therefore, the read and write access in the end of the function should not
+	// be suspect to a read/write hazard, as one histogram belongs to one warp. Nevertheless,
+	// the compute-sanitizer reports a hazard, which is caused by a different threads processing
+	// different tiles within the same warp. That can be checked by adding a synchronization within
+	// the warp after this function call (`bin_value`).
+
+	const int mask = __match_any_sync(0xffffffff, bi) & (~(1 << lane_id));
+	// NOTE: There is a performance difference between __match_any_sync() and active.match_any()
+	// auto active = cooperative_groups::coalesced_threads();
+	//    const int mask = active.match_any(bi) & (~(1 << lane_id)); // set our own bit to zero
+
+	const int lsbi = sizeof(int) * 8 - __clz(mask) -
+	                 1; // get ID of highest thread which has this value
+	const unsigned umask =
+	    *reinterpret_cast<const unsigned*>((const void*) &mask);
+	k = lsbi > lane_id ? 0 : (__popc(umask) + 1);
+
+	if (k > 0 && bi >= 0) {
+		histogram[bi] += k;
 	}
 }
 
@@ -73,7 +114,11 @@ __global__ void sum_subsequent_into(const T* p, T* result) {
 	thrustshift::sum_subsequent_into<T, num_threads, N, n>(p, result, tid);
 }
 
-template <typename T, int block_dim, int num_sh_histograms, class F>
+template <typename T,
+          int block_dim,
+          int grid_dim,
+          int num_sh_histograms,
+          class F>
 __global__ void bin_values(const T* data,
                            int N,
                            int* histograms,
@@ -84,18 +129,21 @@ __global__ void bin_values(const T* data,
 	constexpr int histogram_length = 256;
 	constexpr int all_sh_histograms_length =
 	    histogram_length * num_sh_histograms;
+
 	__shared__ int sh_histograms[all_sh_histograms_length];
 	const int tid = threadIdx.x;
 	constexpr int warp_size = 32;
 	const int warp_id = tid / warp_size;
-	constexpr int wc = 2; // warps per histogram
+	constexpr int wc = 1; // warps per histogram
 	constexpr int num_warps = block_dim / warp_size;
 	static_assert(num_sh_histograms == num_warps / wc);
 	static_assert(num_warps % wc == 0);
+	static_assert(wc == 1); // due to implementation of `bin_value`
 
 	auto cta = cooperative_groups::this_thread_block();
 
-	fill_unroll<int, block_dim, all_sh_histograms_length>(sh_histograms, 0, tid);
+	fill_unroll<int, block_dim, all_sh_histograms_length>(
+	    sh_histograms, 0, tid);
 
 	cta.sync();
 
@@ -104,20 +152,26 @@ __global__ void bin_values(const T* data,
 	const int num_tiles = thrustshift::ceil_divide(N, block_dim);
 	constexpr int tile_size = block_dim;
 	int tile_id = blockIdx.x;
-	for (; tile_id < num_tiles - 1; tile_id += gridDim.x) {
+	for (; tile_id < num_tiles - 1; tile_id += grid_dim) {
 		const int tile_offset = tile_id * block_dim;
 		const auto x = unary_functor(data[tile_offset + tid]);
-		bin_value(x, bit_offset, prefix, my_histogram);
+		bin_value(x, bit_offset, prefix, my_histogram, true);
 	}
 	// last tile
 	if (tile_id == num_tiles - 1) {
 		const int tile_offset = tile_id * block_dim;
 		const int curr_tile_size =
 		    tile_offset + tile_size > N ? (N - tile_offset) : tile_size;
-		if (tid < curr_tile_size) {
-			const auto x = unary_functor(data[tile_offset + tid]);
-			bin_value(x, bit_offset, prefix, my_histogram);
-		}
+		bool valid_rw = tid < curr_tile_size;
+		const auto x = [&] {
+			if (valid_rw) {
+				return unary_functor(data[tile_offset + tid]);
+			}
+			return T{};
+		}();
+		// every thread of the warp must enter this function as it contains
+		// warp synchronizing functions.
+		bin_value(x, bit_offset, prefix, my_histogram, valid_rw);
 	}
 
 	cta.sync();
@@ -154,6 +208,8 @@ void bin_values256(cuda::stream_t& stream,
 
 	constexpr int block_dim = 256;
 	constexpr int num_histograms = 80;
+	constexpr int warp_size = 32;
+	constexpr int num_sh_histograms = block_dim / warp_size;
 
 	auto c = cuda::make_launch_config(num_histograms, block_dim);
 
@@ -161,24 +217,26 @@ void bin_values256(cuda::stream_t& stream,
 	                                      delayed_memory_resource);
 
 	auto histograms = tmp_mem.to_span();
-	constexpr int num_sh_histograms = 4;
-	cuda::enqueue_launch(kernel::bin_values<T, block_dim, num_sh_histograms, F>,
-	                     stream,
-	                     c,
-	                     values.data(),
-	                     values.size(),
-	                     histograms.data(),
-	                     bit_offset,
-	                     prefix,
-	                     unary_functor);
 
 	cuda::enqueue_launch(
-	    kernel::
-	        sum_subsequent_into<int, block_dim, histogram_length, num_histograms>,
+	    kernel::bin_values<T, block_dim, num_histograms, num_sh_histograms, F>,
 	    stream,
-	    cuda::make_launch_config(1, 256),
+	    c,
+	    values.data(),
+	    values.size(),
 	    histograms.data(),
-	    histogram.data());
+	    bit_offset,
+	    prefix,
+	    unary_functor);
+
+	cuda::enqueue_launch(kernel::sum_subsequent_into<int,
+	                                                 block_dim,
+	                                                 histogram_length,
+	                                                 num_histograms>,
+	                     stream,
+	                     cuda::make_launch_config(1, 256),
+	                     histograms.data(),
+	                     histogram.data());
 }
 
 } // namespace async
@@ -190,7 +248,10 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix(
     int k,
     MemoryResource& delayed_memory_resource) {
 
-	auto unary_functor = [] __device__(int x) { return std::abs(x); };
+	auto unary_functor = [] __device__(T x) {
+		using std::abs;
+		return abs(x);
+	};
 
 	constexpr int histogram_length = 256;
 	auto tmp =
@@ -200,12 +261,12 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix(
 	uint64_t prefix = 0;
 	for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8); bit_offset += 8) {
 		async::bin_values256<T>(stream,
-		                          values,
-		                          histogram,
-		                          bit_offset,
-		                          prefix,
-		                          unary_functor,
-		                          delayed_memory_resource);
+		                        values,
+		                        histogram,
+		                        bit_offset,
+		                        prefix,
+		                        unary_functor,
+		                        delayed_memory_resource);
 		stream.synchronize();
 		int acc = histogram[histogram_length - 1];
 		int acc_prev = 0;
@@ -239,8 +300,10 @@ void select_k_largest_values_abs(
 	    stream, values, k, delayed_memory_resource);
 	const auto prefix = std::get<0>(tup);
 	const auto bit_offset = std::get<1>(tup);
-	auto select_op = [prefix, bit_offset] __device__(const thrust::tuple<T, int>& tup) {
-		auto x = std::abs(thrust::get<0>(tup));
+	auto select_op = [prefix,
+	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+		using std::abs;
+		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
 		const I i = *reinterpret_cast<I*>((void*) (&x));
 		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);

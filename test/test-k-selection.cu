@@ -64,15 +64,15 @@ std::ostream& operator<<(std::ostream& os,
 	return os;
 }
 
-template<typename T>
+template <typename T>
 struct uniform_distribution_type_proxy {
 	using type = std::uniform_int_distribution<T>;
 };
-template<>
+template <>
 struct uniform_distribution_type_proxy<float> {
 	using type = std::uniform_real_distribution<float>;
 };
-template<>
+template <>
 struct uniform_distribution_type_proxy<double> {
 	using type = std::uniform_real_distribution<double>;
 };
@@ -102,8 +102,8 @@ std::vector<k_selection_test_data_t<int>> int_test_datas = {
     {gen_uniform_values<int>(100, 0, 765), 100},
     {gen_uniform_values<int>(100, 0, std::numeric_limits<int>::max()), 12},
     {gen_uniform_values<int>(100,
-                                 std::numeric_limits<int>::min(),
-                                 std::numeric_limits<int>::max()),
+                             std::numeric_limits<int>::min(),
+                             std::numeric_limits<int>::max()),
      13},
     {gen_uniform_values<int>(100, -6478, 765), 56},
     {gen_uniform_values<int>(476168, 0, 765), 10},
@@ -116,10 +116,13 @@ std::vector<k_selection_test_data_t<float>> float_test_datas = {
     {gen_uniform_values<float>(100, 0, 765), 100},
     {gen_uniform_values<float>(100, 0, std::numeric_limits<float>::max()), 12},
     {gen_uniform_values<float>(100,
-                                 std::numeric_limits<float>::min(),
-                                 std::numeric_limits<float>::max()),
+                               std::numeric_limits<float>::min(),
+                               std::numeric_limits<float>::max()),
      13},
     {gen_uniform_values<float>(100, -6478, 765), 56},
+    {gen_uniform_values<float>(357, -6478, 765), 56},
+    {gen_uniform_values<float>(1052, -6478, 765), 56},
+    {gen_uniform_values<float>(10520, -6478, 765), 56},
     {gen_uniform_values<float>(476168, 0, 765), 10},
     {gen_uniform_values<float>(476168, -6884, 765), 5},
 };
