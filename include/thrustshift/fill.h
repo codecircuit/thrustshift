@@ -3,10 +3,32 @@
 #include <gsl-lite/gsl-lite.hpp>
 
 #include <cuda/runtime_api.hpp>
+#include <cuda/define_specifiers.hpp>
 
 #include <thrustshift/math.h>
 
 namespace thrustshift {
+
+/*! \brief Fill range of length `N` with `x`.
+ *
+ *  \param N length of the range
+ *  \param p pointer to the range
+ *  \param x value
+ *  \param tid ID of the thread which enters the function
+ *  \param num_threads total amount of threads which enter the function
+ */
+template <typename T, int num_threads, int N>
+CUDA_FD void fill_unroll(T* p, T x, int tid) {
+	constexpr int num_elements_per_thread = N / num_threads;
+#pragma unroll
+	for (int i = 0; i < num_elements_per_thread; ++i) {
+		p[i * num_threads + tid] = x;
+	}
+	constexpr int num_rest = N % num_threads;
+	if (tid < num_rest) {
+		p[num_elements_per_thread * num_threads + tid] = x;
+	}
+}
 
 namespace kernel {
 template <typename T, class Range>
