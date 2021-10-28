@@ -55,6 +55,16 @@ void select_if(cuda::stream_t& stream,
 	exec();
 }
 
+/*! \brief Select values based on predicate with their index.
+ *
+ *  \param values Range of length N with value_type `T`
+ *  \param selected Range of length N with a value type which is assignable
+ *      by a thrust::tuple<T, int>.
+ *  \param select_op select predicate with signature
+ *      ```
+ *      select_op = [] __device__ (const thrust::tuple<T, int>& tup) { ... };
+ *      ```
+ */
 template <class ValuesRange,
           class SelectedRange,
           class NumSelectedPtr,

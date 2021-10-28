@@ -24,6 +24,8 @@
 namespace bdata = boost::unit_test::data;
 using namespace thrustshift;
 
+namespace {
+
 template <typename Range>
 auto k_largest_abs_values_gold(Range&& r, int k) {
 
@@ -34,69 +36,137 @@ auto k_largest_abs_values_gold(Range&& r, int k) {
 	for (int i = 0; i < N; ++i) {
 		v[i] = std::tuple<T, int>{r[i], i};
 	}
-	std::sort(v.begin(), v.end(), [](auto a, auto b){ return std::abs(std::get<0>(a)) > std::abs(std::get<0>(b)); });
+	std::sort(v.begin(), v.end(), [](auto a, auto b) {
+		return std::abs(std::get<0>(a)) > std::abs(std::get<0>(b));
+	});
 	v.resize(k);
 	return v;
 }
 
+template <typename T>
+struct k_selection_test_data_t {
+	std::vector<T> values;
+	int k;
+};
 
+template <typename T>
+std::ostream& operator<<(std::ostream& os,
+                         const k_selection_test_data_t<T>& td) {
+	os << "k = " << td.k << '\n';
+	const size_t N = td.values.size();
+	os << "values = [";
+	if (N <= 100 && N > 0) {
+		for (size_t i = 0; i < N - 1; ++i) {
+			os << td.values[i] << ", ";
+		}
+		os << td.values[N - 1] << "]\n";
+	}
+	return os;
+}
 
-BOOST_AUTO_TEST_CASE(test_k_selection) {
+template<typename T>
+struct uniform_distribution_type_proxy {
+	using type = std::uniform_int_distribution<T>;
+};
+template<>
+struct uniform_distribution_type_proxy<float> {
+	using type = std::uniform_real_distribution<float>;
+};
+template<>
+struct uniform_distribution_type_proxy<double> {
+	using type = std::uniform_real_distribution<double>;
+};
 
-	constexpr std::size_t N = 100;
+template <typename T>
+auto gen_uniform_values(std::size_t N, T min, T max) {
+	std::vector<T> v(N);
+	std::default_random_engine rng;
+	typename uniform_distribution_type_proxy<T>::type dist(min, max);
+	// auto dist = [&] { // NOTE: produces still warnings. Wait for better compiler
+	// 	if constexpr (std::is_integral<T>::value) {
+	// 		return std::uniform_int_distribution<T>(min, max);
+	// 	}
+	// 	else {
+	// 		return std::uniform_real_distribution<T>(min, max);
+	// 	}
+	// }();
+	for (auto& e : v) {
+		e = dist(rng);
+	}
+	return v;
+}
+
+std::vector<k_selection_test_data_t<int>> int_test_datas = {
+    {gen_uniform_values<int>(100, 0, 765), 7},
+    {gen_uniform_values<int>(100, 0, 765), 1},
+    {gen_uniform_values<int>(100, 0, 765), 100},
+    {gen_uniform_values<int>(100, 0, std::numeric_limits<int>::max()), 12},
+    {gen_uniform_values<int>(100,
+                                 std::numeric_limits<int>::min(),
+                                 std::numeric_limits<int>::max()),
+     13},
+    {gen_uniform_values<int>(100, -6478, 765), 56},
+    {gen_uniform_values<int>(476168, 0, 765), 10},
+    {gen_uniform_values<int>(476168, -6884, 765), 5},
+};
+
+std::vector<k_selection_test_data_t<float>> float_test_datas = {
+    {gen_uniform_values<float>(100, 0, 765), 7},
+    {gen_uniform_values<float>(100, 0, 765), 1},
+    {gen_uniform_values<float>(100, 0, 765), 100},
+    {gen_uniform_values<float>(100, 0, std::numeric_limits<float>::max()), 12},
+    {gen_uniform_values<float>(100,
+                                 std::numeric_limits<float>::min(),
+                                 std::numeric_limits<float>::max()),
+     13},
+    {gen_uniform_values<float>(100, -6478, 765), 56},
+    {gen_uniform_values<float>(476168, 0, 765), 10},
+    {gen_uniform_values<float>(476168, -6884, 765), 5},
+};
+
+} // namespace
+
+template <typename T>
+void do_k_selection_test(const k_selection_test_data_t<T>& td) {
+	const thrustshift::managed_vector<T> v(td.values.begin(), td.values.end());
+	const int k = td.k;
+	const std::size_t N = v.size();
 
 	auto device = cuda::device::current::get();
 	auto stream = device.default_stream();
 
-	thrustshift::managed_vector<int> v(N);
-	thrustshift::managed_vector<int> histogram(256);
-
-	std::default_random_engine rng;
-	std::uniform_int_distribution<int> dist(0, 765);
-	for (auto& e : v) {
-		e = dist(rng);
-	}
-	// for (int i = 0; i < 16; ++i) {
-	// 	v[i] = 2;
-	// }
-	// v[N/2] = std::numeric_limits<int>::max();
-	// v[N/2+1] = std::numeric_limits<int>::max()/2;
-	for (int i = 0; i < N; ++i) {
-		std::cout << "v[" << i << "] = " << v[i] << std::endl;
-	}
-
-	constexpr int k = 12;
-	const auto kl = k_largest_abs_values_gold(v, k);
-	std::cout << "k largest values from cpu:\n";
-	for (auto& e : kl) {
-		std::cout << "(" << std::get<0>(e) << ", " << std::get<1>(e) << ")" << std::endl;
-	}
+	const auto selected_values_gold = k_largest_abs_values_gold(v, k);
 
 	thrustshift::pmr::delayed_pool_type<thrustshift::pmr::managed_resource_type>
 	    delayed_memory_resource;
 
-	auto unary_functor = [] __device__(int x) { return std::abs(x); };
+	thrustshift::managed_vector<thrust::tuple<T, int>> selected_values(N);
 
-	async::bin_values256<int>(
-	    stream, v, histogram, 0, 0, unary_functor, delayed_memory_resource);
-	device.synchronize();
-
-	auto [prefix, bit_offset] = thrustshift::k_largest_values_abs_radix<int>(
-	    stream, v, k, delayed_memory_resource);
-	std::cout << "prefix  = " << std::bitset<64>(prefix) << std::endl;
-	std::cout << "bit_offset = " << bit_offset << std::endl;
-
-	for (int i = 0; i < 256; ++i) {
-		std::cout << "histogram[" << i << "] = " << histogram[i] << std::endl;
-	}
-
-	thrustshift::managed_vector<thrust::tuple<int, int>> selected_values(N);
-
-	select_k_largest_values_abs<int>(
+	select_k_largest_values_abs<T>(
 	    stream, v, selected_values, k, delayed_memory_resource);
-	for (int i = 0; i < N; ++i) {
-		std::cout << "selected_values[" << i << "] = ("
-		          << thrust::get<0>(selected_values[i]) << ", "
-		          << thrust::get<1>(selected_values[i]) << ")" << std::endl;
+
+	std::set<T> gold_selected_unique;
+	std::set<T> contender_selected_unique;
+	for (const auto& e : selected_values_gold) {
+		gold_selected_unique.insert(std::get<0>(e));
 	}
+	for (const auto& e : selected_values) {
+		contender_selected_unique.insert(thrust::get<0>(e));
+	}
+	const bool p = gold_selected_unique == contender_selected_unique;
+	for (const auto& g : gold_selected_unique) {
+		BOOST_TEST_CONTEXT("gold value  = " << g) {
+			const bool p = contender_selected_unique.find(g) !=
+			               contender_selected_unique.end();
+			BOOST_TEST(p);
+		}
+	}
+}
+
+BOOST_DATA_TEST_CASE(test_k_selection_int, int_test_datas, td) {
+	do_k_selection_test(td);
+}
+
+BOOST_DATA_TEST_CASE(test_k_selection_float, float_test_datas, td) {
+	do_k_selection_test(td);
 }

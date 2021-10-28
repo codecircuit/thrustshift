@@ -95,7 +95,7 @@ __global__ void bin_values(const T* data,
 
 	auto cta = cooperative_groups::this_thread_block();
 
-	fill_unroll<T, block_dim, all_sh_histograms_length>(sh_histograms, 0, tid);
+	fill_unroll<int, block_dim, all_sh_histograms_length>(sh_histograms, 0, tid);
 
 	cta.sync();
 
@@ -174,7 +174,7 @@ void bin_values256(cuda::stream_t& stream,
 
 	cuda::enqueue_launch(
 	    kernel::
-	        sum_subsequent_into<T, block_dim, histogram_length, num_histograms>,
+	        sum_subsequent_into<int, block_dim, histogram_length, num_histograms>,
 	    stream,
 	    cuda::make_launch_config(1, 256),
 	    histograms.data(),
@@ -199,7 +199,7 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix(
 
 	uint64_t prefix = 0;
 	for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8); bit_offset += 8) {
-		async::bin_values256<int>(stream,
+		async::bin_values256<T>(stream,
 		                          values,
 		                          histogram,
 		                          bit_offset,
