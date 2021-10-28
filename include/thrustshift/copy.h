@@ -215,7 +215,7 @@ struct helper_t<BD_AND_NE,
 	                                     iteratorB_t result,
 	                                     int tid,
 	                                     F f) {
-		f(first, result, tid, tid, tid);
+		f(first, result, tid, tid);
 	}
 
 }; // struct helper_t
