@@ -24,6 +24,7 @@ add_executable(
   "test-array-tuple-transform.cu"
   "test-type-traits.cu"
   "test-for-each.cu"
+  "test-k-selection.cu"
 )
 
 include(CMakeshift/TargetCompileSettings)
