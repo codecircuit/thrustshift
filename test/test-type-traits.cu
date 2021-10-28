@@ -38,5 +38,8 @@ BOOST_AUTO_TEST_CASE(test_type_traits) {
 	f(a);
 	f(b);
 
+	using T3 = make_uintegral_of_equal_size<double>::type;
+	using T4 = make_uintegral_of_equal_size<float>::type;
+	using T5 = make_uintegral_of_equal_size<int>::type;
 }
 

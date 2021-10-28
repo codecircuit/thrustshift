@@ -47,4 +47,21 @@ template <typename T>
 //using is_tuple = detail::is_tuple<typename std::decay<T>::type>;
 using is_tuple = detail::is_tuple<typename std::decay<T>::type>;
 
+
+template<typename T>
+struct make_uintegral_of_equal_size {
+	static_assert(std::is_integral<T>::value);
+	using type =  typename std::make_unsigned<T>::type;
+};
+
+template<>
+struct make_uintegral_of_equal_size<float> {
+	using type = uint32_t;
+};
+
+template<>
+struct make_uintegral_of_equal_size<double> {
+	using type = uint64_t;
+};
+
 } // namespace thrustshift
