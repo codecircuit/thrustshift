@@ -6,6 +6,7 @@
 
 #include <cuda/runtime_api.hpp>
 
+#include <thrustshift/constant.h>
 #include <thrustshift/copy.h>
 #include <thrustshift/fill.h>
 #include <thrustshift/math.h>
@@ -108,6 +109,56 @@ CUDA_FD void bin_value(T x,
 	}
 }
 
+//! one warp for each histogram
+template <typename T,
+          typename I0,
+          typename I1,
+          typename I2,
+          typename I3,
+          typename I4,
+          class F>
+CUDA_FHD void bin_values_block(
+    const T* values,
+    I0 N,
+    I1* histograms,
+    I2 my_tile_start, // =0 in case of intra block, =blockIdx.x in case of inter block binning
+    I3 tile_increment, // =1 in case of intra block, =grid_dim in case of inter block binning
+    I4 block_dim,
+    int bit_offset,
+    uint64_t prefix,
+    F unary_functor) {
+
+	constexpr int histogram_length = 256;
+	const int tid = threadIdx.x;
+	const int warp_id = tid / warp_size;
+	I1* my_histogram = histograms + warp_id * histogram_length;
+
+	const int num_tiles = thrustshift::ceil_divide(N, block_dim);
+	auto tile_size = block_dim;
+	int tile_id = my_tile_start;
+	for (; tile_id < num_tiles - 1; tile_id += tile_increment) {
+		const int tile_offset = tile_id * block_dim;
+		const auto x = unary_functor(values[tile_offset + tid]);
+		bin_value(x, bit_offset, prefix, my_histogram, true);
+	}
+	// last tile
+	if (tile_id == num_tiles - 1) {
+		const int tile_offset = tile_id * block_dim;
+		const int curr_tile_size =
+		    tile_offset + tile_size > N ? (N - tile_offset) : tile_size;
+		bool valid_rw = tid < curr_tile_size;
+		const auto x = [&] {
+			if (valid_rw) {
+				return unary_functor(values[tile_offset + tid]);
+			}
+			return T{};
+		}();
+		// every thread of the warp must enter this function as it contains
+		// warp synchronizing functions.
+		bin_value(x, bit_offset, prefix, my_histogram, valid_rw);
+	}
+}
+
 namespace kernel {
 
 template <typename T, int num_threads, int N, int n>
@@ -135,13 +186,8 @@ __global__ void bin_values(const T* data,
 	using histogram_value_type = unsigned;
 	__shared__ histogram_value_type sh_histograms[all_sh_histograms_length];
 	const int tid = threadIdx.x;
-	constexpr int warp_size = 32;
-	const int warp_id = tid / warp_size;
-	constexpr int wc = 1; // warps per histogram
 	constexpr int num_warps = block_dim / warp_size;
-	static_assert(num_sh_histograms == num_warps / wc);
-	static_assert(num_warps % wc == 0);
-	static_assert(wc == 1); // due to implementation of `bin_value`
+	static_assert(num_sh_histograms == num_warps);
 
 	auto cta = cooperative_groups::this_thread_block();
 
@@ -150,33 +196,15 @@ __global__ void bin_values(const T* data,
 
 	cta.sync();
 
-	histogram_value_type* my_histogram =
-	    sh_histograms + (warp_id / wc) * histogram_length;
-
-	const int num_tiles = thrustshift::ceil_divide(N, block_dim);
-	constexpr int tile_size = block_dim;
-	int tile_id = blockIdx.x;
-	for (; tile_id < num_tiles - 1; tile_id += grid_dim) {
-		const int tile_offset = tile_id * block_dim;
-		const auto x = unary_functor(data[tile_offset + tid]);
-		bin_value(x, bit_offset, prefix, my_histogram, true);
-	}
-	// last tile
-	if (tile_id == num_tiles - 1) {
-		const int tile_offset = tile_id * block_dim;
-		const int curr_tile_size =
-		    tile_offset + tile_size > N ? (N - tile_offset) : tile_size;
-		bool valid_rw = tid < curr_tile_size;
-		const auto x = [&] {
-			if (valid_rw) {
-				return unary_functor(data[tile_offset + tid]);
-			}
-			return T{};
-		}();
-		// every thread of the warp must enter this function as it contains
-		// warp synchronizing functions.
-		bin_value(x, bit_offset, prefix, my_histogram, valid_rw);
-	}
+	bin_values_block(data,
+	                 N,
+	                 sh_histograms,
+	                 blockIdx.x,
+	                 grid_dim,
+	                 block_dim,
+	                 bit_offset,
+	                 prefix,
+	                 unary_functor);
 
 	cta.sync();
 
@@ -212,7 +240,6 @@ void bin_values256(cuda::stream_t& stream,
 
 	constexpr int block_dim = 256;
 	constexpr int num_histograms = 80;
-	constexpr int warp_size = 32;
 	constexpr int num_sh_histograms = block_dim / warp_size;
 
 	auto c = cuda::make_launch_config(num_histograms, block_dim);
