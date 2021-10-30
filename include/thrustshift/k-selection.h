@@ -45,11 +45,11 @@ CUDA_FD void sum_subsequent_into(const T* p, T* result, int tid) {
 	}
 }
 
-template <typename T>
+template <typename T, typename IH>
 CUDA_FD void bin_value(T x,
                        int bit_offset,
                        uint64_t prefix,
-                       int* histogram,
+                       IH* histogram,
                        bool valid_write) {
 
 	using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
@@ -64,11 +64,12 @@ CUDA_FD void bin_value(T x,
 	const K b = (i >> (sizeof(I) * 8 - bit_size - bit_offset)) &
 	            I(std::numeric_limits<K>::max());
 
-	//	// NOTE: in a trivial implementation the value is just incremented atomically
-	// 	if ((i >> sizeof(I) * 8 - bit_offset) == static_cast<I>(prefix) &&
-	// 	    valid_write) {
-	// 		atomicAdd(histogram + b, 1);
-	// 	}
+	// NOTE: in a trivial implementation the value is just incremented atomically
+	// if ((i >> sizeof(I) * 8 - bit_offset) == static_cast<I>(prefix) &&
+	//     valid_write) {
+	// 	//atomicAdd(histogram + b, 1); // 213 GB/s
+	// 	//atomicInc(histogram + b, std::numeric_limits<IH>::max()); // 212 GB/s
+	// }
 
 	int bi = b;
 	int k = 1; // increment of the bin
@@ -90,6 +91,7 @@ CUDA_FD void bin_value(T x,
 	// different tiles within the same warp. That can be checked by adding a synchronization within
 	// the warp after this function call (`bin_value`).
 
+	__syncwarp(); // with 264 GB/s, without 364 GB/s
 	const int mask = __match_any_sync(0xffffffff, bi) & (~(1 << lane_id));
 	// NOTE: There is a performance difference between __match_any_sync() and active.match_any()
 	// auto active = cooperative_groups::coalesced_threads();
@@ -130,7 +132,8 @@ __global__ void bin_values(const T* data,
 	constexpr int all_sh_histograms_length =
 	    histogram_length * num_sh_histograms;
 
-	__shared__ int sh_histograms[all_sh_histograms_length];
+	using histogram_value_type = unsigned;
+	__shared__ histogram_value_type sh_histograms[all_sh_histograms_length];
 	const int tid = threadIdx.x;
 	constexpr int warp_size = 32;
 	const int warp_id = tid / warp_size;
@@ -142,12 +145,13 @@ __global__ void bin_values(const T* data,
 
 	auto cta = cooperative_groups::this_thread_block();
 
-	fill_unroll<int, block_dim, all_sh_histograms_length>(
+	fill_unroll<histogram_value_type, block_dim, all_sh_histograms_length>(
 	    sh_histograms, 0, tid);
 
 	cta.sync();
 
-	int* my_histogram = sh_histograms + (warp_id / wc) * histogram_length;
+	histogram_value_type* my_histogram =
+	    sh_histograms + (warp_id / wc) * histogram_length;
 
 	const int num_tiles = thrustshift::ceil_divide(N, block_dim);
 	constexpr int tile_size = block_dim;
@@ -179,7 +183,7 @@ __global__ void bin_values(const T* data,
 	//
 	// Sum all histograms
 	//
-	thrustshift::sum_subsequent_into<int,
+	thrustshift::sum_subsequent_into<histogram_value_type,
 	                                 block_dim,
 	                                 histogram_length,
 	                                 num_sh_histograms>(
