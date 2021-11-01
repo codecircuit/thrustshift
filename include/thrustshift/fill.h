@@ -2,12 +2,16 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/runtime_api.hpp>
 #include <cuda/define_specifiers.hpp>
+#include <cuda/runtime_api.hpp>
 
 #include <thrustshift/math.h>
 
 namespace thrustshift {
+
+namespace device_function {
+
+namespace explicit_unroll {
 
 /*! \brief Fill range of length `N` with `x`.
  *
@@ -18,7 +22,7 @@ namespace thrustshift {
  *  \param num_threads total amount of threads which enter the function
  */
 template <typename T, int num_threads, int N>
-CUDA_FD void fill_unroll(T* p, T x, int tid) {
+CUDA_FD void fill(T* p, T x, int tid) {
 	constexpr int num_elements_per_thread = N / num_threads;
 #pragma unroll
 	for (int i = 0; i < num_elements_per_thread; ++i) {
@@ -29,6 +33,27 @@ CUDA_FD void fill_unroll(T* p, T x, int tid) {
 		p[num_elements_per_thread * num_threads + tid] = x;
 	}
 }
+
+} // namespace explicit_unroll
+
+namespace implicit_unroll {
+
+template <typename T0, typename T1, typename I0, typename I1, typename I2>
+CUDA_FD void fill(T0* p, T1 x, I0 tid, I1 num_threads, I2 N) {
+	auto num_elements_per_thread = N / num_threads;
+#pragma unroll
+	for (int i = 0; i < num_elements_per_thread; ++i) {
+		p[i * num_threads + tid] = x;
+	}
+	auto num_rest = N % num_threads;
+	if (tid < num_rest) {
+		p[num_elements_per_thread * num_threads + tid] = x;
+	}
+}
+
+} // namespace implicit_unroll
+
+} // namespace device_function
 
 namespace kernel {
 template <typename T, class Range>

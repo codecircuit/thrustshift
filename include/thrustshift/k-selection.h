@@ -6,6 +6,8 @@
 
 #include <cuda/runtime_api.hpp>
 
+#include <cub/cub.cuh>
+
 #include <thrustshift/constant.h>
 #include <thrustshift/copy.h>
 #include <thrustshift/fill.h>
@@ -16,10 +18,53 @@
 
 namespace thrustshift {
 
-/*! \brief sum column-wise and save the result into the first row.
+namespace device_function {
+
+namespace implicit_unroll {
+
+/*! \brief Sum an n x N array column-wise.
  *  \param N length of row
  *  \param n number of rows
- *  \param p input
+ *  \param p input of length `N * n`
+ *  \param result of length `N`. As a result you may pass `p`.
+ */
+template <typename T0, typename T1, typename I0, typename I1, typename I2>
+CUDA_FD void sum_subsequent_into(const T0* p,
+                                 T1* result,
+                                 int tid,
+                                 I0 num_threads,
+                                 I1 N,
+                                 I2 n) {
+
+	auto num_columns_per_thread = N / num_threads;
+	auto sum_column = [&](int col_id) {
+		T0 x{};
+#pragma unroll
+		for (int j = 0; j < n; ++j) {
+			x += p[col_id + N * j];
+		}
+		result[col_id] = x;
+	};
+#pragma unroll
+	for (int i = 0; i < num_columns_per_thread; ++i) {
+		const int col_id = i * num_threads + tid;
+		sum_column(col_id);
+	}
+	auto num_rest = N % num_threads;
+	if (tid < num_rest) {
+		const int col_id = num_columns_per_thread * num_threads + tid;
+		sum_column(col_id);
+	}
+}
+
+} // namespace implicit_unroll
+
+namespace explicit_unroll {
+
+/*! \brief Sum an n x N array column-wise.
+ *  \param N length of row
+ *  \param n number of rows
+ *  \param p input of length `N * n`
  *  \param result of length `N`. As a result you may pass `p`.
  */
 template <typename T, int num_threads, int N, int n>
@@ -46,12 +91,38 @@ CUDA_FD void sum_subsequent_into(const T* p, T* result, int tid) {
 	}
 }
 
-template <typename T, typename IH>
-CUDA_FD void bin_value(T x,
-                       int bit_offset,
-                       uint64_t prefix,
-                       IH* histogram,
-                       bool valid_write) {
+} // namespace explicit_unroll
+
+/*! \brief Bin value `x` based on a subset of 8 bits into a 256 bin histogram with a full warp.
+ *
+ *  Only one atomic addition is executed for each bin, although multiple threads in a warp can
+ *  have a value which belongs into the same bin. Via warp level primitives the bin incrementation is
+ *  aggregated to one single thread.
+ *
+ *  ```
+ *  x x x x x x x x x x x x x x x x x x x x x x x  <--- `x` represents one bit
+ * |--bit_offset---|--bit_size---|--rest---------|
+ * |-----prefix----|
+ * ```
+ *
+ *
+ *  \param x value which is put into the bin. Can be different for each thread.
+ *  \param bit_offset number of bits which are omitted from the left of the bit pattern of `x`.
+ *  \param prefix bit pattern with `bit_offset` reasonable bits from the right. If the beginning of the bit pattern
+ *      of `x` is not equal to `prefix`, the value is not binned.
+ *  \param histogram length of 256. Does not have to be unique for each warp.
+ *  \param valid_write set to false if a thread should not bin the value `x`.
+ *  \param bin_index_transform lambda with `[] (int i) -> int {...}` signature. If set to the identity
+ *      the values are binned from low to high. The lambda can be used to reverse the order in the
+ *      histogram.
+ */
+template <typename T, typename IH, class F>
+CUDA_FD void bin_value256(T x,
+                          int bit_offset,
+                          uint64_t prefix,
+                          IH* histogram,
+                          bool valid_write,
+                          F bin_index_transform) {
 
 	using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
 	using K = uint8_t;
@@ -65,14 +136,15 @@ CUDA_FD void bin_value(T x,
 	const K b = (i >> (sizeof(I) * 8 - bit_size - bit_offset)) &
 	            I(std::numeric_limits<K>::max());
 
+	int bi = bin_index_transform(b);
+
 	// NOTE: in a trivial implementation the value is just incremented atomically
 	// if ((i >> sizeof(I) * 8 - bit_offset) == static_cast<I>(prefix) &&
 	//     valid_write) {
-	// 	//atomicAdd(histogram + b, 1); // 213 GB/s
-	// 	//atomicInc(histogram + b, std::numeric_limits<IH>::max()); // 212 GB/s
+	// 	//atomicAdd(histogram + bi, 1); // 213 GB/s
+	// 	//atomicInc(histogram + bi, std::numeric_limits<IH>::max()); // 212 GB/s
 	// }
 
-	int bi = b;
 	int k = 1; // increment of the bin
 	// Only count values which start with the given prefix pattern
 	if ((i >> sizeof(I) * 8 - bit_offset) != static_cast<I>(prefix) ||
@@ -92,7 +164,7 @@ CUDA_FD void bin_value(T x,
 	// different tiles within the same warp. That can be checked by adding a synchronization within
 	// the warp after this function call (`bin_value`).
 
-	__syncwarp(); // with 264 GB/s, without 364 GB/s
+	//__syncwarp(); // with 264 GB/s, without 364 GB/s
 	const int mask = __match_any_sync(0xffffffff, bi) & (~(1 << lane_id));
 	// NOTE: There is a performance difference between __match_any_sync() and active.match_any()
 	// auto active = cooperative_groups::coalesced_threads();
@@ -105,19 +177,48 @@ CUDA_FD void bin_value(T x,
 	k = lsbi > lane_id ? 0 : (__popc(umask) + 1);
 
 	if (k > 0 && bi >= 0) {
-		histogram[bi] += k;
+		//		histogram[bi] += k;
+		atomicAdd(histogram + bi, k);
 	}
 }
 
-//! one warp for each histogram
+namespace implicit_unroll {
+
+/*! \brief Bin transformed values based on a subset of 8 bits into a 256 bin histogram.
+ *
+ *  After execution and synchronization, multiple histograms (`histograms`) are filled, which must subsequently be summed into
+ *  one single histogram.
+ *
+ *  ```
+ *  x x x x x x x x x x x x x x x x x x x x x x x  <--- `x` represents one bit
+ * |--bit_offset---|--bit_size---|--rest---------|
+ * |-----prefix----|
+ * ```
+ *
+ *  \param values of length N.
+ *  \param histograms of length `256 * block_dim / warp_size`. Contains the result after execution and must be
+ *      initialized before function execution.
+ *  \param my_tile_start is equal to zero for intra block binning and equal to `blockIdx.x` for inter block binning.
+ *  \param tile_increment is equal to one for intra block binning and equal to `gridDim.x` for inter block binning.
+ *      For best performance, this should be a compile time constant.
+ *  \param bit_offset number of bits which are omitted from the left of the bit pattern of `x`.
+ *  \param block_dim CUDA block dimension.
+ *  \param prefix bit pattern with `bit_offset` reasonable bits from the right. If the beginning of the bit pattern
+ *      of `x` is not equal to `prefix`, the value is not binned.
+ *  \param unary_functor lambda to transform the values before binning.
+ *  \param bin_index_transform lambda with `[] (int i) -> int {...}` signature. If set to the identity
+ *      the values are binned from low to high. The lambda can be used to reverse the order in the
+ *      histogram.
+ */
 template <typename T,
           typename I0,
           typename I1,
           typename I2,
           typename I3,
           typename I4,
-          class F>
-CUDA_FHD void bin_values_block(
+          class F0,
+          class F1>
+CUDA_FHD void bin_values256_block(
     const T* values,
     I0 N,
     I1* histograms,
@@ -126,7 +227,8 @@ CUDA_FHD void bin_values_block(
     I4 block_dim,
     int bit_offset,
     uint64_t prefix,
-    F unary_functor) {
+    F0 unary_functor,
+    F1 bin_index_transform) {
 
 	constexpr int histogram_length = 256;
 	const int tid = threadIdx.x;
@@ -139,7 +241,8 @@ CUDA_FHD void bin_values_block(
 	for (; tile_id < num_tiles - 1; tile_id += tile_increment) {
 		const int tile_offset = tile_id * block_dim;
 		const auto x = unary_functor(values[tile_offset + tid]);
-		bin_value(x, bit_offset, prefix, my_histogram, true);
+		bin_value256(
+		    x, bit_offset, prefix, my_histogram, true, bin_index_transform);
 	}
 	// last tile
 	if (tile_id == num_tiles - 1) {
@@ -154,17 +257,160 @@ CUDA_FHD void bin_values_block(
 			return T{};
 		}();
 		// every thread of the warp must enter this function as it contains
-		// warp synchronizing functions.
-		bin_value(x, bit_offset, prefix, my_histogram, valid_rw);
+		// `*__sync` warp level primitives.
+		bin_value256(
+		    x, bit_offset, prefix, my_histogram, valid_rw, bin_index_transform);
 	}
 }
+
+} // namespace implicit_unroll
+
+template <int block_dim, typename IH>
+struct k_largest_values_abs_block {
+
+	static constexpr int histogram_length = 256;
+	static constexpr int num_warps = block_dim / warp_size;
+	static_assert(block_dim % warp_size == 0);
+	static_assert(histogram_length % block_dim == 0);
+	static constexpr int num_scan_elements_per_thread =
+	    histogram_length / block_dim;
+	using BlockLoad = cub::BlockLoad<IH,
+	                                 block_dim,
+	                                 num_scan_elements_per_thread,
+	                                 cub::BLOCK_LOAD_WARP_TRANSPOSE>;
+	using BlockScan = cub::BlockScan<IH, block_dim>;
+
+	struct pair_t {
+		int k;
+		uint64_t prefix;
+	};
+
+	union TempStorage {
+		typename BlockLoad::TempStorage block_load;
+		typename BlockScan::TempStorage block_scan;
+		pair_t pair;
+	};
+
+	template <typename T, typename I0>
+	CUDA_FD thrust::tuple<uint64_t, int> k_largest_values_abs_radix_block(
+	    const T* values,
+	    I0 N,
+	    IH* uninitialized_histograms,
+	    int k,
+	    TempStorage& temp_storage) {
+
+		const int tid = threadIdx.x;
+
+		device_function::implicit_unroll::fill(uninitialized_histograms,
+		                                       0,
+		                                       tid,
+		                                       block_dim,
+		                                       num_warps * histogram_length);
+		auto* histograms =
+		    uninitialized_histograms; // rename for better readability
+		__syncthreads();
+
+		auto unary_functor = [](T x) {
+			using std::abs;
+			return abs(x);
+		};
+
+		// Create the histogram from large to small values
+		auto bin_index_transform = [](auto i) {
+			return histogram_length - i - 1;
+		};
+
+		uint64_t prefix = 0;
+
+		for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8);
+		     bit_offset += 8) {
+			//
+			// Bin values into one histogram per warp
+			//
+			thrustshift::device_function::implicit_unroll::bin_values256_block(
+			    values,
+			    N,
+			    histograms,
+			    0, // tile start
+			    1, // tile increment
+			    block_dim,
+			    bit_offset,
+			    prefix,
+			    unary_functor,
+			    bin_index_transform);
+			__syncthreads();
+
+			//
+			// Sum all histograms
+			//
+			thrustshift::device_function::implicit_unroll::sum_subsequent_into(
+			    histograms, histograms, tid, block_dim, N, num_warps);
+
+			__syncthreads();
+			// The first histogram is now the sum of all histograms in shared memory
+
+			//
+			// Scan the histogram
+			//
+			IH hvalues[num_scan_elements_per_thread];
+			IH hcumulative_values[num_scan_elements_per_thread];
+			BlockLoad(temp_storage.block_load).Load(histograms, hvalues);
+			BlockScan(temp_storage.block_scan)
+			    .InclusiveSum(hvalues, hcumulative_values);
+			__syncthreads();
+			BlockStore(temp_storage.block_store)
+			    .Store(histograms, hcumulative_values);
+			__syncthreads();
+
+			// Create helper array to have the value of our left neighbour
+			IH hcumulative_values2[num_scan_elements_per_thread + 1];
+#pragma unroll
+			for (int j = 0; j < num_scan_elements_per_thread; ++j) {
+				hcumulative_values2[j + 1] = hcumulative_values[j];
+			}
+			if (tid > 0) {
+				hcumulative_values2[0] =
+				    histograms[tid * num_scan_elements_per_thread - 1];
+			}
+			else {
+				hcumulative_values2[0] = 0;
+			}
+#pragma unroll
+			for (int j = 0; j < num_scan_elements_per_thread; ++j) {
+				const int l = j + tid * num_scan_elements_per_thread;
+				const int i = histogram_length - l - 1;
+				if (hcumulative_values2[j + 1] >= k &&
+				    hcumulative_values2[j] < k) {
+					// Only one thread is expected to enter this branch
+					prefix = (prefix << 8) | uint64_t(i);
+					// all values with this prefix and larger are included
+					temp_storage.pair.k = hcumulative_values2[j + 1] == k
+					                          ? 0
+					                          : k - hcumulative_values2[j];
+					temp_storage.pair.prefix = prefix;
+				}
+			}
+
+			__syncthreads();
+			k = temp_storage.pair.k;
+			prefix = temp_storage.pair.prefix;
+			if (k == 0) {
+				return {prefix, bit_offset + 8};
+			}
+		}
+		return {prefix, sizeof(T) * 8};
+	}
+};
+
+} // namespace device_function
 
 namespace kernel {
 
 template <typename T, int num_threads, int N, int n>
 __global__ void sum_subsequent_into(const T* p, T* result) {
 	const int tid = threadIdx.x;
-	thrustshift::sum_subsequent_into<T, num_threads, N, n>(p, result, tid);
+	thrustshift::device_function::explicit_unroll::
+	    sum_subsequent_into<T, num_threads, N, n>(p, result, tid);
 }
 
 template <typename T,
@@ -172,12 +418,12 @@ template <typename T,
           int grid_dim,
           int num_sh_histograms,
           class F>
-__global__ void bin_values(const T* data,
-                           int N,
-                           int* histograms,
-                           int bit_offset,
-                           uint64_t prefix,
-                           F unary_functor) {
+__global__ void bin_values256(const T* data,
+                              int N,
+                              int* histograms,
+                              int bit_offset,
+                              uint64_t prefix,
+                              F unary_functor) {
 
 	constexpr int histogram_length = 256;
 	constexpr int all_sh_histograms_length =
@@ -191,31 +437,35 @@ __global__ void bin_values(const T* data,
 
 	auto cta = cooperative_groups::this_thread_block();
 
-	fill_unroll<histogram_value_type, block_dim, all_sh_histograms_length>(
-	    sh_histograms, 0, tid);
+	auto bin_index_transform = [](auto i) { return i; };
+
+	device_function::explicit_unroll::
+	    fill<histogram_value_type, block_dim, all_sh_histograms_length>(
+	        sh_histograms, 0, tid);
 
 	cta.sync();
 
-	bin_values_block(data,
-	                 N,
-	                 sh_histograms,
-	                 blockIdx.x,
-	                 grid_dim,
-	                 block_dim,
-	                 bit_offset,
-	                 prefix,
-	                 unary_functor);
+	device_function::implicit_unroll::bin_values256_block(data,
+	                                                      N,
+	                                                      sh_histograms,
+	                                                      blockIdx.x,
+	                                                      grid_dim,
+	                                                      block_dim,
+	                                                      bit_offset,
+	                                                      prefix,
+	                                                      unary_functor,
+	                                                      bin_index_transform);
 
 	cta.sync();
 
 	//
 	// Sum all histograms
 	//
-	thrustshift::sum_subsequent_into<histogram_value_type,
-	                                 block_dim,
-	                                 histogram_length,
-	                                 num_sh_histograms>(
-	    sh_histograms, sh_histograms, tid);
+	thrustshift::device_function::explicit_unroll::sum_subsequent_into<
+	    histogram_value_type,
+	    block_dim,
+	    histogram_length,
+	    num_sh_histograms>(sh_histograms, sh_histograms, tid);
 	cta.sync();
 
 	thrustshift::block_copy<block_dim, histogram_length>(
@@ -250,7 +500,8 @@ void bin_values256(cuda::stream_t& stream,
 	auto histograms = tmp_mem.to_span();
 
 	cuda::enqueue_launch(
-	    kernel::bin_values<T, block_dim, num_histograms, num_sh_histograms, F>,
+	    kernel::
+	        bin_values256<T, block_dim, num_histograms, num_sh_histograms, F>,
 	    stream,
 	    c,
 	    values.data(),
