@@ -105,7 +105,6 @@ CUDA_FD void sum_subsequent_into(const T* p, T* result, int tid) {
  * |-----prefix----|
  * ```
  *
- *
  *  \param x value which is put into the bin. Can be different for each thread.
  *  \param bit_offset number of bits which are omitted from the left of the bit pattern of `x`.
  *  \param prefix bit pattern with `bit_offset` reasonable bits from the right. If the beginning of the bit pattern
@@ -138,13 +137,6 @@ CUDA_FD void bin_value256(T x,
 
 	int bi = bin_index_transform(b);
 
-	// NOTE: in a trivial implementation the value is just incremented atomically
-	// if ((i >> sizeof(I) * 8 - bit_offset) == static_cast<I>(prefix) &&
-	//     valid_write) {
-	// 	//atomicAdd(histogram + bi, 1); // 213 GB/s
-	// 	//atomicInc(histogram + bi, std::numeric_limits<IH>::max()); // 212 GB/s
-	// }
-
 	int k = 1; // increment of the bin
 	// Only count values which start with the given prefix pattern
 	if ((i >> sizeof(I) * 8 - bit_offset) != static_cast<I>(prefix) ||
@@ -155,20 +147,10 @@ CUDA_FD void bin_value256(T x,
 
 	// Threads with higher ID take precedence over those with low ID and the
 	// same bin.
-	const int lane_id = threadIdx.x % warpSize;
+	const int lane_id = threadIdx.x % warp_size;
 
-	// NOTE: In the following `__match_any_sync` the threads of the current warp must
-	// sync. Therefore, the read and write access in the end of the function should not
-	// be suspect to a read/write hazard, as one histogram belongs to one warp. Nevertheless,
-	// the compute-sanitizer reports a hazard, which is caused by a different threads processing
-	// different tiles within the same warp. That can be checked by adding a synchronization within
-	// the warp after this function call (`bin_value`).
-
-	//__syncwarp(); // with 264 GB/s, without 364 GB/s
-	const int mask = __match_any_sync(0xffffffff, bi) & (~(1 << lane_id));
-	// NOTE: There is a performance difference between __match_any_sync() and active.match_any()
-	// auto active = cooperative_groups::coalesced_threads();
-	//    const int mask = active.match_any(bi) & (~(1 << lane_id)); // set our own bit to zero
+	const int mask = __match_any_sync(0xffffffff, bi) &
+	                 (~(1 << lane_id)); // set our own bit to zero
 
 	const int lsbi = sizeof(int) * 8 - __clz(mask) -
 	                 1; // get ID of highest thread which has this value
@@ -177,7 +159,6 @@ CUDA_FD void bin_value256(T x,
 	k = lsbi > lane_id ? 0 : (__popc(umask) + 1);
 
 	if (k > 0 && bi >= 0) {
-		//		histogram[bi] += k;
 		atomicAdd(histogram + bi, k);
 	}
 }
@@ -198,11 +179,12 @@ namespace implicit_unroll {
  *  \param values of length N.
  *  \param histograms of length `256 * block_dim / warp_size`. Contains the result after execution and must be
  *      initialized before function execution.
+ *  \param num_histograms number of histograms.
  *  \param my_tile_start is equal to zero for intra block binning and equal to `blockIdx.x` for inter block binning.
  *  \param tile_increment is equal to one for intra block binning and equal to `gridDim.x` for inter block binning.
  *      For best performance, this should be a compile time constant.
  *  \param bit_offset number of bits which are omitted from the left of the bit pattern of `x`.
- *  \param block_dim CUDA block dimension.
+ *  \param num_threads the number of threads which are entering the function (num_threads % warp_size == 0).
  *  \param prefix bit pattern with `bit_offset` reasonable bits from the right. If the beginning of the bit pattern
  *      of `x` is not equal to `prefix`, the value is not binned.
  *  \param unary_functor lambda to transform the values before binning.
@@ -216,37 +198,43 @@ template <typename T,
           typename I2,
           typename I3,
           typename I4,
+          typename I5,
           class F0,
           class F1>
-CUDA_FHD void bin_values256_block(
+CUDA_FHD void bin_values256(
     const T* values,
     I0 N,
     I1* histograms,
+    I5 num_histograms,
     I2 my_tile_start, // =0 in case of intra block, =blockIdx.x in case of inter block binning
     I3 tile_increment, // =1 in case of intra block, =grid_dim in case of inter block binning
-    I4 block_dim,
+    int tid,
+    I4 num_threads,
     int bit_offset,
     uint64_t prefix,
     F0 unary_functor,
     F1 bin_index_transform) {
 
+	gsl_ExpectsAudit(num_threads % warp_size == 0);
 	constexpr int histogram_length = 256;
-	const int tid = threadIdx.x;
 	const int warp_id = tid / warp_size;
-	I1* my_histogram = histograms + warp_id * histogram_length;
+	auto num_warps = num_threads / warp_size;
+	auto num_warps_per_histogram = num_histograms / num_warps;
+	const int histogram_id = warp_id / num_warps_per_histogram;
+	I1* my_histogram = histograms + histogram_id * histogram_length;
 
-	const int num_tiles = thrustshift::ceil_divide(N, block_dim);
-	auto tile_size = block_dim;
+	const int num_tiles = thrustshift::ceil_divide(N, num_threads);
+	auto tile_size = num_threads;
 	int tile_id = my_tile_start;
 	for (; tile_id < num_tiles - 1; tile_id += tile_increment) {
-		const int tile_offset = tile_id * block_dim;
+		const int tile_offset = tile_id * num_threads;
 		const auto x = unary_functor(values[tile_offset + tid]);
 		bin_value256(
 		    x, bit_offset, prefix, my_histogram, true, bin_index_transform);
 	}
 	// last tile
 	if (tile_id == num_tiles - 1) {
-		const int tile_offset = tile_id * block_dim;
+		const int tile_offset = tile_id * num_threads;
 		const int curr_tile_size =
 		    tile_offset + tile_size > N ? (N - tile_offset) : tile_size;
 		bool valid_rw = tid < curr_tile_size;
@@ -265,7 +253,7 @@ CUDA_FHD void bin_values256_block(
 
 } // namespace implicit_unroll
 
-template <int block_dim, typename IH>
+template <int block_dim, int num_histograms, typename IH>
 struct k_largest_values_abs_block {
 
 	static constexpr int histogram_length = 256;
@@ -279,6 +267,10 @@ struct k_largest_values_abs_block {
 	                                 num_scan_elements_per_thread,
 	                                 cub::BLOCK_LOAD_WARP_TRANSPOSE>;
 	using BlockScan = cub::BlockScan<IH, block_dim>;
+	using BlockStore = cub::BlockStore<IH,
+	                                   block_dim,
+	                                   num_scan_elements_per_thread,
+	                                   cub::BLOCK_STORE_WARP_TRANSPOSE>;
 
 	struct pair_t {
 		int k;
@@ -288,27 +280,19 @@ struct k_largest_values_abs_block {
 	union TempStorage {
 		typename BlockLoad::TempStorage block_load;
 		typename BlockScan::TempStorage block_scan;
+		typename BlockStore::TempStorage block_store;
 		pair_t pair;
 	};
 
 	template <typename T, typename I0>
-	CUDA_FD thrust::tuple<uint64_t, int> k_largest_values_abs_radix_block(
-	    const T* values,
-	    I0 N,
-	    IH* uninitialized_histograms,
-	    int k,
-	    TempStorage& temp_storage) {
+	static CUDA_FD thrust::tuple<uint64_t, int>
+	k_largest_values_abs_radix_block(const T* values,
+	                                 I0 N,
+	                                 IH* uninitialized_histograms,
+	                                 int k,
+	                                 TempStorage& temp_storage) {
 
 		const int tid = threadIdx.x;
-
-		device_function::implicit_unroll::fill(uninitialized_histograms,
-		                                       0,
-		                                       tid,
-		                                       block_dim,
-		                                       num_warps * histogram_length);
-		auto* histograms =
-		    uninitialized_histograms; // rename for better readability
-		__syncthreads();
 
 		auto unary_functor = [](T x) {
 			using std::abs;
@@ -324,15 +308,31 @@ struct k_largest_values_abs_block {
 
 		for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8);
 		     bit_offset += 8) {
+
+			//
+			// Initialize the histograms
+			//
+			device_function::implicit_unroll::fill(
+			    uninitialized_histograms,
+			    0,
+			    tid,
+			    block_dim,
+			    num_warps * histogram_length);
+			auto* histograms =
+			    uninitialized_histograms; // rename for better readability
+			__syncthreads();
+
 			//
 			// Bin values into one histogram per warp
 			//
-			thrustshift::device_function::implicit_unroll::bin_values256_block(
+			thrustshift::device_function::implicit_unroll::bin_values256(
 			    values,
 			    N,
 			    histograms,
+			    num_histograms,
 			    0, // tile start
 			    1, // tile increment
+			    tid,
 			    block_dim,
 			    bit_offset,
 			    prefix,
@@ -343,10 +343,16 @@ struct k_largest_values_abs_block {
 			//
 			// Sum all histograms
 			//
-			thrustshift::device_function::implicit_unroll::sum_subsequent_into(
-			    histograms, histograms, tid, block_dim, N, num_warps);
-
-			__syncthreads();
+			if (num_histograms > 1) {
+				thrustshift::device_function::implicit_unroll::
+				    sum_subsequent_into(histograms,
+				                        histograms,
+				                        tid,
+				                        block_dim,
+				                        histogram_length,
+				                        num_warps);
+				__syncthreads();
+			}
 			// The first histogram is now the sum of all histograms in shared memory
 
 			//
@@ -355,11 +361,9 @@ struct k_largest_values_abs_block {
 			IH hvalues[num_scan_elements_per_thread];
 			IH hcumulative_values[num_scan_elements_per_thread];
 			BlockLoad(temp_storage.block_load).Load(histograms, hvalues);
+			__syncthreads(); // necessary due to reuse of temporary memory
 			BlockScan(temp_storage.block_scan)
 			    .InclusiveSum(hvalues, hcumulative_values);
-			__syncthreads();
-			BlockStore(temp_storage.block_store)
-			    .Store(histograms, hcumulative_values);
 			__syncthreads();
 
 			// Create helper array to have the value of our left neighbour
@@ -368,6 +372,13 @@ struct k_largest_values_abs_block {
 			for (int j = 0; j < num_scan_elements_per_thread; ++j) {
 				hcumulative_values2[j + 1] = hcumulative_values[j];
 			}
+
+			BlockStore(
+			    temp_storage
+			        .block_store) // block store changes the register values
+			    .Store(histograms, hcumulative_values);
+			__syncthreads();
+
 			if (tid > 0) {
 				hcumulative_values2[0] =
 				    histograms[tid * num_scan_elements_per_thread - 1];
@@ -435,38 +446,40 @@ __global__ void bin_values256(const T* data,
 	constexpr int num_warps = block_dim / warp_size;
 	static_assert(num_sh_histograms == num_warps);
 
-	auto cta = cooperative_groups::this_thread_block();
-
 	auto bin_index_transform = [](auto i) { return i; };
 
 	device_function::explicit_unroll::
 	    fill<histogram_value_type, block_dim, all_sh_histograms_length>(
 	        sh_histograms, 0, tid);
 
-	cta.sync();
+	__syncthreads();
 
-	device_function::implicit_unroll::bin_values256_block(data,
-	                                                      N,
-	                                                      sh_histograms,
-	                                                      blockIdx.x,
-	                                                      grid_dim,
-	                                                      block_dim,
-	                                                      bit_offset,
-	                                                      prefix,
-	                                                      unary_functor,
-	                                                      bin_index_transform);
+	device_function::implicit_unroll::bin_values256(data,
+	                                                N,
+	                                                sh_histograms,
+	                                                num_sh_histograms,
+	                                                blockIdx.x,
+	                                                grid_dim,
+	                                                tid,
+	                                                block_dim,
+	                                                bit_offset,
+	                                                prefix,
+	                                                unary_functor,
+	                                                bin_index_transform);
 
-	cta.sync();
+	__syncthreads();
 
 	//
 	// Sum all histograms
 	//
-	thrustshift::device_function::explicit_unroll::sum_subsequent_into<
-	    histogram_value_type,
-	    block_dim,
-	    histogram_length,
-	    num_sh_histograms>(sh_histograms, sh_histograms, tid);
-	cta.sync();
+	if (num_sh_histograms > 1) {
+		thrustshift::device_function::explicit_unroll::sum_subsequent_into<
+		    histogram_value_type,
+		    block_dim,
+		    histogram_length,
+		    num_sh_histograms>(sh_histograms, sh_histograms, tid);
+		__syncthreads();
+	}
 
 	thrustshift::block_copy<block_dim, histogram_length>(
 	    sh_histograms, histograms + blockIdx.x * histogram_length);
