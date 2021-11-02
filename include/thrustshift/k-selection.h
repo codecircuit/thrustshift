@@ -272,16 +272,17 @@ struct k_largest_values_abs_block {
 	                                   num_scan_elements_per_thread,
 	                                   cub::BLOCK_STORE_WARP_TRANSPOSE>;
 
-	struct pair_t {
+	struct triplet_t {
 		int k;
 		uint64_t prefix;
+		int selected_values_pos;
 	};
 
 	union TempStorage {
 		typename BlockLoad::TempStorage block_load;
 		typename BlockScan::TempStorage block_scan;
 		typename BlockStore::TempStorage block_store;
-		pair_t pair;
+		triplet_t triplet;
 	};
 
 	template <typename T, typename I0>
@@ -395,21 +396,66 @@ struct k_largest_values_abs_block {
 					// Only one thread is expected to enter this branch
 					prefix = (prefix << 8) | uint64_t(i);
 					// all values with this prefix and larger are included
-					temp_storage.pair.k = hcumulative_values2[j + 1] == k
-					                          ? 0
-					                          : k - hcumulative_values2[j];
-					temp_storage.pair.prefix = prefix;
+					temp_storage.triplet.k = hcumulative_values2[j + 1] == k
+					                             ? 0
+					                             : k - hcumulative_values2[j];
+					temp_storage.triplet.prefix = prefix;
+					// This is set for subsequent function execution to avoid one
+					// additional __syncthreads();
+					temp_storage.triplet.selected_values_pos = 0;
 				}
 			}
 
 			__syncthreads();
-			k = temp_storage.pair.k;
-			prefix = temp_storage.pair.prefix;
+			k = temp_storage.triplet.k;
+			prefix = temp_storage.triplet.prefix;
 			if (k == 0) {
 				return {prefix, bit_offset + 8};
 			}
 		}
 		return {prefix, sizeof(T) * 8};
+	}
+
+	template <typename It, typename ItSelected, typename I0>
+	static CUDA_FD void select_k_largest_values_with_index_abs(
+	    It values,
+	    I0 N,
+	    ItSelected selected_values,
+	    IH* uninitialized_histograms,
+	    int k,
+	    TempStorage& temp_storage) {
+
+		const int tid = threadIdx.x;
+
+		auto tup = k_largest_values_abs_radix_block(
+		    values, N, uninitialized_histograms, k, temp_storage);
+		auto prefix = thrust::get<0>(tup);
+		auto bit_offset = thrust::get<1>(tup);
+
+		using T = typename std::remove_const<
+		    typename std::iterator_traits<It>::value_type>::type;
+
+		auto cit = thrust::make_counting_iterator(0);
+		auto it = thrust::make_zip_iterator(thrust::make_tuple(values, cit));
+
+		auto select_op = [prefix, bit_offset] __device__(
+		                     const thrust::tuple<T, int>& tup) {
+			using std::abs;
+			auto x = abs(thrust::get<0>(tup));
+			using I =
+			    typename thrustshift::make_uintegral_of_equal_size<T>::type;
+			const I i = *reinterpret_cast<I*>((void*) (&x));
+			return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
+		};
+
+		device_function::implicit_unroll::select_if(
+		    it,
+		    N,
+		    selected_values,
+		    &temp_storage.triplet.selected_values_pos,
+		    tid,
+		    block_dim,
+		    select_op);
 	}
 };
 

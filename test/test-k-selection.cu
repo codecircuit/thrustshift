@@ -180,11 +180,13 @@ void do_k_selection_test(const k_selection_test_data_t<T>& td) {
 }
 
 template <typename T, int block_dim>
-__global__ void do_k_selection_intra_block_kernel(const T* values,
-                                                  int N,
-                                                  int k,
-                                                  uint64_t* prefix,
-                                                  int* bit_offset) {
+__global__ void do_k_selection_intra_block_kernel(
+    const T* values,
+    thrust::tuple<T, int>* selected_values,
+    int N,
+    int k,
+    uint64_t* prefix,
+    int* bit_offset) {
 
 	constexpr int histogram_length = 256;
 	constexpr int num_warps = block_dim / warp_size;
@@ -203,6 +205,11 @@ __global__ void do_k_selection_intra_block_kernel(const T* values,
 		*prefix = thrust::get<0>(tup);
 		*bit_offset = thrust::get<1>(tup);
 	}
+
+	__syncthreads();
+
+	F::select_k_largest_values_with_index_abs(
+	    values, N, selected_values, histograms, k, temp_storage);
 }
 
 template <typename T>
@@ -235,6 +242,7 @@ void do_k_selection_intra_block_test(const k_selection_test_data_t<T>& td) {
 	                     stream,
 	                     c,
 	                     v.data(),
+	                     selected_values.data(),
 	                     N,
 	                     k,
 	                     prefix_s.data(),
@@ -251,22 +259,22 @@ void do_k_selection_intra_block_test(const k_selection_test_data_t<T>& td) {
 		BOOST_TEST(bit_offset_s[0] == bit_offset);
 	}
 
-	// std::set<T> gold_selected_unique;
-	// std::set<T> contender_selected_unique;
-	// for (const auto& e : selected_values_gold) {
-	// 	gold_selected_unique.insert(std::get<0>(e));
-	// }
-	// for (const auto& e : selected_values) {
-	// 	contender_selected_unique.insert(thrust::get<0>(e));
-	// }
-	// const bool p = gold_selected_unique == contender_selected_unique;
-	// for (const auto& g : gold_selected_unique) {
-	// 	BOOST_TEST_CONTEXT("gold value  = " << g) {
-	// 		const bool p = contender_selected_unique.find(g) !=
-	// 		               contender_selected_unique.end();
-	// 		BOOST_TEST(p);
-	// 	}
-	// }
+	std::set<T> gold_selected_unique;
+	std::set<T> contender_selected_unique;
+	for (const auto& e : selected_values_gold) {
+		gold_selected_unique.insert(std::get<0>(e));
+	}
+	for (const auto& e : selected_values) {
+		contender_selected_unique.insert(thrust::get<0>(e));
+	}
+	const bool p = gold_selected_unique == contender_selected_unique;
+	for (const auto& g : gold_selected_unique) {
+		BOOST_TEST_CONTEXT("gold value  = " << g) {
+			const bool p = contender_selected_unique.find(g) !=
+			               contender_selected_unique.end();
+			BOOST_TEST(p);
+		}
+	}
 }
 
 BOOST_DATA_TEST_CASE(test_k_selection_int, int_test_datas, td) {
