@@ -278,10 +278,12 @@ struct k_largest_values_abs_block {
 		int selected_values_pos;
 	};
 
-	union TempStorage {
-		typename BlockLoad::TempStorage block_load;
-		typename BlockScan::TempStorage block_scan;
-		typename BlockStore::TempStorage block_store;
+	struct TempStorage {
+		union {
+			typename BlockLoad::TempStorage block_load;
+			typename BlockScan::TempStorage block_scan;
+			typename BlockStore::TempStorage block_store;
+		};
 		triplet_t triplet;
 	};
 
@@ -630,12 +632,12 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix(
 
 // selected_values.size() == values.size() because CUB might select more values, if e.g. values are all equal
 template <typename T, class MemoryResource>
-void select_k_largest_values_abs(
-    cuda::stream_t& stream,
-    gsl_lite::span<const T> values,
-    gsl_lite::span<thrust::tuple<T, int>> selected_values,
-    int k,
-    MemoryResource& delayed_memory_resource) {
+void select_k_largest_values_abs(cuda::stream_t& stream,
+                                 gsl_lite::span<const T> values,
+                                 gsl_lite::span<T> selected_values,
+                                 gsl_lite::span<int> selected_indices,
+                                 int k,
+                                 MemoryResource& delayed_memory_resource) {
 
 	const auto tup = thrustshift::k_largest_values_abs_radix<T>(
 	    stream, values, k, delayed_memory_resource);
@@ -655,6 +657,7 @@ void select_k_largest_values_abs(
 	async::select_if_with_index(stream,
 	                            values,
 	                            selected_values,
+	                            selected_indices,
 	                            num_selected.data(),
 	                            select_op,
 	                            delayed_memory_resource);

@@ -36,7 +36,7 @@ int main(int argc, const char* argv[]) {
 
 	std::cout << "  - device = \"" << device.name() << "\"" << std::endl;
 
-	constexpr int N_max = 1 << 24;
+	constexpr int N_max = 1 << 20;
 	constexpr int k = 36;
 
 	auto get_num_warmups = [](int N) { return 200; };
@@ -48,8 +48,10 @@ int main(int argc, const char* argv[]) {
 	    values, -1e+7, 1e+7, 1); // last number is seed
 	thrustshift::pmr::delayed_pool_type<thrustshift::pmr::managed_resource_type>
 	    delayed_memory_resource;
-	thrustshift::managed_vector<thrust::tuple<T, int>> selected_values_(N_max);
-	gsl_lite::span<thrust::tuple<T, int>> selected_values(selected_values_);
+	thrustshift::managed_vector<T> selected_values_(N_max);
+	thrustshift::managed_vector<int> selected_indices_(N_max);
+	gsl_lite::span<T> selected_values(selected_values_);
+	gsl_lite::span<int> selected_indices(selected_indices_);
 
 	std::map<benchmark_key_t, double> timings;
 
@@ -57,6 +59,7 @@ int main(int argc, const char* argv[]) {
 		select_k_largest_values_abs<T>(stream,
 		                               values.first(N),
 		                               selected_values.first(N),
+		                               selected_indices.first(N),
 		                               k,
 		                               delayed_memory_resource);
 	};
