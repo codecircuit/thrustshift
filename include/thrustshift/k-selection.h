@@ -219,7 +219,8 @@ CUDA_FHD void bin_values256(
 	constexpr int histogram_length = 256;
 	const int warp_id = tid / warp_size;
 	auto num_warps = num_threads / warp_size;
-	auto num_warps_per_histogram = num_histograms / num_warps;
+	gsl_ExpectsAudit(num_warps % num_histograms == 0);
+	auto num_warps_per_histogram = num_warps / num_histograms;
 	const int histogram_id = warp_id / num_warps_per_histogram;
 	I1* my_histogram = histograms + histogram_id * histogram_length;
 
