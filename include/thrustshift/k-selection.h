@@ -8,9 +8,12 @@
 
 #include <cub/cub.cuh>
 
+#include <makeshift/variant.hpp>
+
 #include <thrustshift/constant.h>
 #include <thrustshift/copy.h>
 #include <thrustshift/fill.h>
+#include <thrustshift/histogram.h>
 #include <thrustshift/math.h>
 #include <thrustshift/not-a-vector.h>
 #include <thrustshift/select-if.h>
@@ -220,6 +223,7 @@ CUDA_FHD void bin_values256(
 	const int warp_id = tid / warp_size;
 	auto num_warps = num_threads / warp_size;
 	gsl_ExpectsAudit(num_warps % num_histograms == 0);
+	gsl_ExpectsAudit(num_histograms <= num_warps);
 	auto num_warps_per_histogram = num_warps / num_histograms;
 	const int histogram_id = warp_id / num_warps_per_histogram;
 	I1* my_histogram = histograms + histogram_id * histogram_length;
@@ -477,13 +481,15 @@ template <typename T,
           int block_dim,
           int grid_dim,
           int num_sh_histograms,
-          class F>
+          class F0,
+          class F1>
 __global__ void bin_values256(const T* data,
                               int N,
                               int* histograms,
                               int bit_offset,
                               uint64_t prefix,
-                              F unary_functor) {
+                              F0 unary_functor,
+                              F1 bin_index_transform) {
 
 	constexpr int histogram_length = 256;
 	constexpr int all_sh_histograms_length =
@@ -492,10 +498,6 @@ __global__ void bin_values256(const T* data,
 	using histogram_value_type = unsigned;
 	__shared__ histogram_value_type sh_histograms[all_sh_histograms_length];
 	const int tid = threadIdx.x;
-	constexpr int num_warps = block_dim / warp_size;
-	static_assert(num_sh_histograms == num_warps);
-
-	auto bin_index_transform = [](auto i) { return i; };
 
 	device_function::explicit_unroll::
 	    fill<histogram_value_type, block_dim, all_sh_histograms_length>(
@@ -534,44 +536,843 @@ __global__ void bin_values256(const T* data,
 	    sh_histograms, histograms + blockIdx.x * histogram_length);
 }
 
+template <typename T,
+          int block_dim,
+          int grid_dim,
+          int num_sh_histograms,
+          class F0,
+          class F1>
+__global__ void bin_values256_threadfence(const T* data,
+                                          int N,
+                                          volatile int* histograms,
+                                          int bit_offset,
+                                          uint64_t prefix,
+                                          F0 unary_functor,
+                                          F1 bin_index_transform,
+                                          unsigned* entry_ticket,
+                                          unsigned* exit_ticket) {
+
+	constexpr int histogram_length = 256;
+	constexpr int all_sh_histograms_length =
+	    histogram_length * num_sh_histograms;
+
+	using histogram_value_type = int;
+	__shared__ histogram_value_type sh_histograms[all_sh_histograms_length];
+	const int tid = threadIdx.x;
+
+	device_function::explicit_unroll::
+	    fill<histogram_value_type, block_dim, all_sh_histograms_length>(
+	        sh_histograms, 0, tid);
+	__shared__ int sh_entry_bid;
+	__shared__ int sh_exit_bid;
+	if (tid == 0) {
+		sh_entry_bid = atomicInc(entry_ticket, grid_dim);
+	}
+	__syncthreads();
+	int bid = sh_entry_bid;
+
+	device_function::implicit_unroll::bin_values256(data,
+	                                                N,
+	                                                sh_histograms,
+	                                                num_sh_histograms,
+	                                                bid,
+	                                                grid_dim,
+	                                                tid,
+	                                                block_dim,
+	                                                bit_offset,
+	                                                prefix,
+	                                                unary_functor,
+	                                                bin_index_transform);
+
+	__syncthreads();
+
+	//
+	// Sum all histograms
+	//
+	if (num_sh_histograms > 1) {
+		thrustshift::device_function::explicit_unroll::sum_subsequent_into<
+		    histogram_value_type,
+		    block_dim,
+		    histogram_length,
+		    num_sh_histograms>(sh_histograms, sh_histograms, tid);
+		__syncthreads();
+	}
+
+	thrustshift::block_copy<block_dim, histogram_length>(
+	    sh_histograms, histograms + bid * histogram_length);
+
+	// To my understanding this sync threads is necessary because it might happen that
+	// thread 0 does not observe the write of all threads of our histogram.
+	__syncthreads();
+
+	__threadfence();
+
+	if (tid == 0) {
+		sh_exit_bid = atomicInc(exit_ticket, grid_dim);
+	}
+	__syncthreads();
+	if (sh_exit_bid == grid_dim - 1) {
+		static_assert(block_dim >= histogram_length);
+		if (tid < histogram_length) {
+			histogram_value_type h = 0;
+#pragma unroll
+			for (int histo_id = 0; histo_id < grid_dim; ++histo_id) {
+				h += histograms[histo_id * histogram_length + tid];
+			}
+			histograms[tid] = h;
+		}
+	}
+}
+
+template <typename T,
+          int block_dim,
+          int grid_dim,
+          int num_sh_histograms,
+          class F0,
+          class F1>
+__global__ void bin_values256_atomic(const T* data,
+                                     int N,
+                                     int* histogram,
+                                     int bit_offset,
+                                     uint64_t prefix,
+                                     F0 unary_functor,
+                                     F1 bin_index_transform) {
+
+	constexpr int histogram_length = 256;
+	constexpr int all_sh_histograms_length =
+	    histogram_length * num_sh_histograms;
+
+	using histogram_value_type = int;
+
+	__shared__ histogram_value_type sh_histograms[all_sh_histograms_length];
+
+	const int tid = threadIdx.x;
+	const int bid = blockIdx.x;
+
+	device_function::explicit_unroll::
+	    fill<histogram_value_type, block_dim, all_sh_histograms_length>(
+	        sh_histograms, 0, tid);
+
+	__syncthreads();
+
+	device_function::implicit_unroll::bin_values256(data,
+	                                                N,
+	                                                sh_histograms,
+	                                                num_sh_histograms,
+	                                                bid,
+	                                                grid_dim,
+	                                                tid,
+	                                                block_dim,
+	                                                bit_offset,
+	                                                prefix,
+	                                                unary_functor,
+	                                                bin_index_transform);
+
+	__syncthreads();
+
+	//
+	// Sum all histograms
+	//
+	if (num_sh_histograms > 1) {
+		thrustshift::device_function::explicit_unroll::sum_subsequent_into<
+		    histogram_value_type,
+		    block_dim,
+		    histogram_length,
+		    num_sh_histograms>(sh_histograms, sh_histograms, tid);
+		__syncthreads();
+	}
+
+	if (tid < histogram_length) {
+		atomicAdd(histogram + tid, sh_histograms[tid]);
+	}
+}
+
+template <typename T,
+          int block_dim,
+          int grid_dim,
+          int num_sh_histograms,
+          class F0,
+          class F1>
+__global__ void bin_values256_atomic_with_ptr(const T* data,
+                                              int N,
+                                              int* histogram,
+                                              int bit_offset,
+                                              uint64_t* prefix_,
+                                              int* k_,
+                                              F0 unary_functor,
+                                              F1 bin_index_transform) {
+
+	constexpr int histogram_length = 256;
+	constexpr int all_sh_histograms_length =
+	    histogram_length * num_sh_histograms;
+
+	using histogram_value_type = int;
+
+	__shared__ histogram_value_type sh_histograms[all_sh_histograms_length];
+
+	const int tid = threadIdx.x;
+	const int bid = blockIdx.x;
+	int k = *k_;
+	if (k <= 0) {
+		return;
+	}
+	uint64_t prefix = *prefix_;
+
+	device_function::explicit_unroll::
+	    fill<histogram_value_type, block_dim, all_sh_histograms_length>(
+	        sh_histograms, 0, tid);
+
+	__syncthreads();
+
+	device_function::implicit_unroll::bin_values256(data,
+	                                                N,
+	                                                sh_histograms,
+	                                                num_sh_histograms,
+	                                                bid,
+	                                                grid_dim,
+	                                                tid,
+	                                                block_dim,
+	                                                bit_offset,
+	                                                prefix,
+	                                                unary_functor,
+	                                                bin_index_transform);
+
+	__syncthreads();
+
+	//
+	// Sum all histograms
+	//
+	if (num_sh_histograms > 1) {
+		thrustshift::device_function::explicit_unroll::sum_subsequent_into<
+		    histogram_value_type,
+		    block_dim,
+		    histogram_length,
+		    num_sh_histograms>(sh_histograms, sh_histograms, tid);
+		__syncthreads();
+	}
+
+	if (tid < histogram_length) {
+		atomicAdd(histogram + tid, sh_histograms[tid]);
+	}
+}
+
+template <typename T,
+          typename IH,
+          int block_dim,
+          int grid_dim,
+          int num_sh_histograms>
+__global__ void k_select_radix(const T* data,
+                               int N,
+                               IH* histograms,
+                               int* bit_offset_,
+                               uint64_t* prefix_,
+                               int* k_) {
+
+	constexpr int histogram_length = 256;
+	constexpr int all_sh_histograms_length =
+	    histogram_length * num_sh_histograms;
+
+	auto unary_functor = [](T x) {
+		using std::abs;
+		return abs(x);
+	};
+
+	using BlockScan = cub::BlockScan<IH, block_dim>;
+
+	__shared__ union {
+		typename BlockScan::TempStorage block_scan;
+		IH histograms[all_sh_histograms_length];
+	} temp_storage;
+
+	const int tid = threadIdx.x;
+	const int bid = blockIdx.x;
+
+	uint64_t prefix;
+	int k;
+
+	auto grid = cooperative_groups::this_grid();
+
+	auto bin_index_transform = [](auto i) { return histogram_length - i - 1; };
+
+	for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8); bit_offset += 8) {
+
+		k = *k_;
+		prefix = *prefix_;
+		if (k == 0) {
+			return;
+		}
+
+		device_function::explicit_unroll::
+		    fill<IH, block_dim, all_sh_histograms_length>(
+		        temp_storage.histograms, 0, tid);
+
+		__syncthreads();
+
+		device_function::implicit_unroll::bin_values256(data,
+		                                                N,
+		                                                temp_storage.histograms,
+		                                                num_sh_histograms,
+		                                                blockIdx.x,
+		                                                grid_dim,
+		                                                tid,
+		                                                block_dim,
+		                                                bit_offset,
+		                                                prefix,
+		                                                unary_functor,
+		                                                bin_index_transform);
+
+		__syncthreads();
+
+		//
+		// Sum all histograms
+		//
+		if (num_sh_histograms > 1) {
+			thrustshift::device_function::explicit_unroll::sum_subsequent_into<
+			    IH,
+			    block_dim,
+			    histogram_length,
+			    num_sh_histograms>(
+			    temp_storage.histograms, temp_storage.histograms, tid);
+			__syncthreads();
+		}
+
+		IH h = temp_storage.histograms[tid];
+		IH hcum;
+		// it is faster if all blocks do already the scan before
+		// the histograms are summed up.
+		BlockScan(temp_storage.block_scan).InclusiveSum(h, hcum);
+		histograms[bid * histogram_length + tid] = hcum;
+
+		//
+		// Store block histogram to global memory
+		//
+		// thrustshift::block_copy<block_dim, histogram_length>(
+		//     temp_storage.histograms, histograms + bid * histogram_length);
+
+		grid.sync();
+		if (bid == 0) {
+			static_assert(histogram_length == block_dim);
+#pragma unroll
+			for (int histo_id = 1; histo_id < grid_dim; ++histo_id) {
+				hcum += histograms[histo_id * histogram_length + tid];
+			}
+			//			BlockScan(temp_storage.block_scan).InclusiveSum(h, hcum);
+			//			__syncthreads();
+			temp_storage.histograms[tid] = hcum;
+			__syncthreads();
+			IH hleft = 0;
+			if (tid > 0) {
+				hleft = temp_storage.histograms[tid - 1];
+			}
+
+			const int i = histogram_length - tid - 1;
+			if (hcum >= k && hleft < k) {
+				// Only one thread is expected to enter this branch
+				prefix = (prefix << 8) | uint64_t(i);
+				// all values with this prefix and larger are included
+				*k_ = hcum == k ? 0 : k - hleft;
+				*prefix_ = prefix;
+				*bit_offset_ = bit_offset + 8;
+			}
+
+			__syncthreads();
+		}
+		grid.sync();
+	}
+}
+
+// The summation is done redundantly
+template <typename T,
+          typename IH,
+          int block_dim,
+          int grid_dim,
+          int num_sh_histograms>
+__global__ void k_select_radix2(const T* data,
+                                int N,
+                                IH* histograms,
+                                int* bit_offset_,
+                                uint64_t* prefix_,
+                                int k) {
+
+	constexpr int histogram_length = 256;
+	constexpr int all_sh_histograms_length =
+	    histogram_length * num_sh_histograms;
+
+	auto unary_functor = [](T x) {
+		using std::abs;
+		return abs(x);
+	};
+
+	using BlockScan = cub::BlockScan<IH, block_dim>;
+
+	__shared__ union {
+		typename BlockScan::TempStorage block_scan;
+		IH histograms[all_sh_histograms_length];
+	} temp_storage;
+
+	const int tid = threadIdx.x;
+	const int bid = blockIdx.x;
+
+	__shared__ uint64_t sh_prefix;
+	__shared__ int sh_k;
+
+	uint64_t prefix = 0;
+
+	auto grid = cooperative_groups::this_grid();
+
+	auto bin_index_transform = [](auto i) { return histogram_length - i - 1; };
+
+	for (int bit_offset = 0, l = 0; bit_offset < int(sizeof(T) * 8);
+	     bit_offset += 8, ++l) {
+
+		if (k == 0) {
+			return;
+		}
+
+		device_function::explicit_unroll::
+		    fill<IH, block_dim, all_sh_histograms_length>(
+		        temp_storage.histograms, 0, tid);
+
+		__syncthreads();
+
+		device_function::implicit_unroll::bin_values256(data,
+		                                                N,
+		                                                temp_storage.histograms,
+		                                                num_sh_histograms,
+		                                                blockIdx.x,
+		                                                grid_dim,
+		                                                tid,
+		                                                block_dim,
+		                                                bit_offset,
+		                                                prefix,
+		                                                unary_functor,
+		                                                bin_index_transform);
+
+		__syncthreads();
+
+		//
+		// Sum all histograms
+		//
+		if (num_sh_histograms > 1) {
+			thrustshift::device_function::explicit_unroll::sum_subsequent_into<
+			    IH,
+			    block_dim,
+			    histogram_length,
+			    num_sh_histograms>(
+			    temp_storage.histograms, temp_storage.histograms, tid);
+			__syncthreads();
+		}
+
+		IH h = temp_storage.histograms[tid];
+		IH hcum;
+		// it is faster if all blocks do already the scan before
+		// the histograms are summed up.
+		BlockScan(temp_storage.block_scan).InclusiveSum(h, hcum);
+		histograms[l * grid_dim * histogram_length + bid * histogram_length +
+		           tid] = hcum;
+
+		//
+		// Store block histogram to global memory
+		//
+		// thrustshift::block_copy<block_dim, histogram_length>(
+		//     temp_storage.histograms, histograms + bid * histogram_length);
+
+		grid.sync();
+		static_assert(histogram_length == block_dim);
+#pragma unroll
+		for (int histo_id = 1; histo_id < grid_dim; ++histo_id) {
+			hcum += histograms[l * grid_dim * histogram_length +
+			                   histo_id * histogram_length + tid];
+		}
+		//			BlockScan(temp_storage.block_scan).InclusiveSum(h, hcum);
+		//			__syncthreads();
+		temp_storage.histograms[tid] = hcum;
+		__syncthreads();
+		IH hleft = 0;
+		if (tid > 0) {
+			hleft = temp_storage.histograms[tid - 1];
+		}
+
+		const int i = histogram_length - tid - 1;
+		if (hcum >= k && hleft < k) {
+			// Only one thread is expected to enter this branch
+			prefix = (prefix << 8) | uint64_t(i);
+			// all values with this prefix and larger are included
+			sh_k = hcum == k ? 0 : k - hleft;
+			sh_prefix = prefix;
+			if (bid == 0) {
+				*prefix_ = prefix;
+				*bit_offset_ = bit_offset + 8;
+			}
+		}
+
+		__syncthreads();
+		k = sh_k;
+		prefix = sh_prefix;
+	}
+}
+
+template <typename T,
+          typename IH,
+          int block_dim,
+          int num_sh_histograms,
+          int num_gl_histograms>
+__global__ void k_select_radix_dynamic_parallelism(const T* data,
+                                                   int N,
+                                                   IH* histograms,
+                                                   int* bit_offset_,
+                                                   uint64_t* prefix_,
+                                                   int k) {
+
+	constexpr int histogram_length = 256;
+
+	auto unary_functor = [](T x) {
+		using std::abs;
+		return abs(x);
+	};
+
+	using BlockScan = cub::BlockScan<IH, block_dim>;
+
+	__shared__ union {
+		typename BlockScan::TempStorage block_scan;
+		IH histogram[histogram_length];
+	} temp_storage;
+
+	__shared__ int sh_k;
+	__shared__ uint64_t sh_prefix;
+
+	static_assert(block_dim == 256);
+
+	constexpr int child_grid_dim = num_gl_histograms;
+	constexpr int child_block_dim = 256;
+
+	const int tid = threadIdx.x;
+	const int bid = blockIdx.x;
+
+	uint64_t prefix = 0;
+
+	auto bin_index_transform = [](auto i) { return histogram_length - i - 1; };
+
+#pragma unroll
+	for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8); bit_offset += 8) {
+
+		if (k == 0) {
+			return;
+		}
+
+		if (tid == 0) {
+
+			kernel::bin_values256<T,
+			                      child_block_dim,
+			                      child_grid_dim,
+			                      num_sh_histograms>
+			    <<<child_grid_dim, child_block_dim>>>(data,
+			                                          N,
+			                                          histograms,
+			                                          bit_offset,
+			                                          prefix,
+			                                          unary_functor,
+			                                          bin_index_transform);
+			cudaDeviceSynchronize();
+		}
+		__syncthreads();
+
+		IH h = 0;
+		IH hcum;
+
+#pragma unroll
+		for (int histo_id = 0; histo_id < num_gl_histograms; ++histo_id) {
+			h += histograms[histo_id * histogram_length + tid];
+		}
+
+		BlockScan(temp_storage.block_scan).InclusiveSum(h, hcum);
+		__syncthreads();
+
+		temp_storage.histogram[tid] = hcum;
+		__syncthreads();
+
+		IH hleft = 0;
+		if (tid > 0) {
+			hleft = temp_storage.histogram[tid - 1];
+		}
+
+		if (hcum >= k && hleft < k) {
+			const int i = histogram_length - tid - 1;
+			// Only one thread is expected to enter this branch
+			prefix = (prefix << 8) | uint64_t(i);
+			// all values with this prefix and larger are included
+			k = hcum == k ? 0 : k - hleft;
+
+			// Write to shared memory
+			sh_k = k;
+			sh_prefix = prefix;
+
+			// Write to global memory
+			//*k_ = k;
+			*prefix_ = prefix;
+			*bit_offset_ = bit_offset + 8;
+		}
+		__syncthreads();
+		k = sh_k;
+		prefix = sh_prefix;
+	}
+}
+
+template <typename T,
+          typename IH,
+          int block_dim,
+          int num_sh_histograms,
+          int child_grid_dim>
+__global__ void k_select_radix_dynamic_parallelism_atomic_binning(
+    const T* data,
+    int N,
+    IH* histogram,
+    int* bit_offset_,
+    uint64_t* prefix_,
+    int k) {
+
+	constexpr int histogram_length = 256;
+
+	auto unary_functor = [](T x) {
+		using std::abs;
+		return abs(x);
+	};
+
+	using BlockScan = cub::BlockScan<IH, block_dim>;
+
+	__shared__ union {
+		typename BlockScan::TempStorage block_scan;
+		IH histogram[histogram_length];
+	} temp_storage;
+
+	__shared__ int sh_k;
+	__shared__ uint64_t sh_prefix;
+
+	static_assert(block_dim == 256);
+
+	constexpr int child_block_dim = 256;
+
+	const int tid = threadIdx.x;
+	const int bid = blockIdx.x;
+	gsl_ExpectsAudit(bid == 0);
+
+	uint64_t prefix = 0;
+
+	auto bin_index_transform = [](auto i) { return histogram_length - i - 1; };
+
+#pragma unroll
+	for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8); bit_offset += 8) {
+
+		if (k == 0) {
+			return;
+		}
+
+		histogram[tid] = 0;
+		__syncthreads();
+
+		if (tid == 0) {
+
+			kernel::bin_values256_atomic<T,
+			                             child_block_dim,
+			                             child_grid_dim,
+			                             num_sh_histograms>
+			    <<<child_grid_dim, child_block_dim>>>(data,
+			                                          N,
+			                                          histogram,
+			                                          bit_offset,
+			                                          prefix,
+			                                          unary_functor,
+			                                          bin_index_transform);
+			cudaDeviceSynchronize();
+		}
+		__syncthreads();
+
+		IH h = histogram[tid];
+		IH hcum;
+
+		BlockScan(temp_storage.block_scan).InclusiveSum(h, hcum);
+		__syncthreads();
+
+		temp_storage.histogram[tid] = hcum;
+		__syncthreads();
+
+		IH hleft = 0;
+		if (tid > 0) {
+			hleft = temp_storage.histogram[tid - 1];
+		}
+
+		if (hcum >= k && hleft < k) {
+			const int i = histogram_length - tid - 1;
+			// Only one thread is expected to enter this branch
+			prefix = (prefix << 8) | uint64_t(i);
+			// all values with this prefix and larger are included
+			k = hcum == k ? 0 : k - hleft;
+
+			// Write to shared memory
+			sh_k = k;
+			sh_prefix = prefix;
+
+			// Write to global memory
+			//*k_ = k;
+			*prefix_ = prefix;
+			*bit_offset_ = bit_offset + 8;
+		}
+		__syncthreads();
+		k = sh_k;
+		prefix = sh_prefix;
+	}
+}
+
+template <typename IH, int block_dim>
+__global__ void k_select_radix_from_histogram(IH* histogram,
+                                              int bit_offset,
+                                              uint64_t* prefix_, // only output
+                                              int* k_) {
+
+	constexpr int histogram_length = 256;
+
+	using BlockScan = cub::BlockScan<IH, block_dim>;
+
+	__shared__ union {
+		typename BlockScan::TempStorage block_scan;
+		IH histogram[histogram_length];
+	} temp_storage;
+
+	static_assert(block_dim == 256);
+
+	const int tid = threadIdx.x;
+	const int bid = blockIdx.x;
+
+	uint64_t prefix = 0;
+	int k = *k_;
+
+	IH h = histogram[tid];
+	IH hcum;
+
+	BlockScan(temp_storage.block_scan).InclusiveSum(h, hcum);
+	__syncthreads();
+
+	temp_storage.histogram[tid] = hcum;
+	__syncthreads();
+
+	IH hleft = 0;
+	if (tid > 0) {
+		hleft = temp_storage.histogram[tid - 1];
+	}
+
+	if (hcum >= k && hleft < k) {
+		const int i = histogram_length - tid - 1;
+		// Only one thread is expected to enter this branch
+		prefix = uint64_t(i);
+		// all values with this prefix and larger are included
+		k = hcum == k ? 0 : k - hleft;
+
+		*k_ = k;
+		*prefix_ = prefix;
+	}
+}
+
+template <typename IH, int block_dim>
+__global__ void k_select_radix_from_histogram_with_ptr(IH* histogram,
+                                                       int* bit_offset_,
+                                                       uint64_t* prefix_,
+                                                       int* k_) {
+
+	constexpr int histogram_length = 256;
+
+	using BlockScan = cub::BlockScan<IH, block_dim>;
+
+	__shared__ union {
+		typename BlockScan::TempStorage block_scan;
+		IH histogram[histogram_length];
+	} temp_storage;
+
+	static_assert(block_dim == 256);
+
+	const int tid = threadIdx.x;
+	const int bid = blockIdx.x;
+
+	uint64_t prefix = *prefix_;
+	int k = *k_;
+	int bit_offset = *bit_offset_;
+	if (k <= 0) {
+		return;
+	}
+
+	IH h = histogram[tid];
+	IH hcum;
+
+	BlockScan(temp_storage.block_scan).InclusiveSum(h, hcum);
+	__syncthreads();
+
+	temp_storage.histogram[tid] = hcum;
+	__syncthreads();
+
+	IH hleft = 0;
+	if (tid > 0) {
+		hleft = temp_storage.histogram[tid - 1];
+	}
+
+	if (hcum >= k && hleft < k) {
+		const int i = histogram_length - tid - 1;
+		// Only one thread is expected to enter this branch
+		prefix = (prefix << 8) | uint64_t(i);
+		// all values with this prefix and larger are included
+		k = hcum == k ? 0 : k - hleft;
+
+		*k_ = k;
+		*prefix_ = prefix;
+		*bit_offset_ = bit_offset + 8;
+	}
+}
+
 } // namespace kernel
 
 namespace async {
 
-template <typename T, class MemoryResource, class F>
+template <typename T, class MemoryResource, class F0, class F1>
 void bin_values256(cuda::stream_t& stream,
                    gsl_lite::span<const T> values,
                    gsl_lite::span<int> histogram,
                    int bit_offset,
                    uint64_t prefix,
-                   F unary_functor,
+                   F0 unary_functor,
+                   F1 bin_index_transform,
                    MemoryResource& delayed_memory_resource) {
 
 	constexpr int histogram_length = 256;
 	gsl_Expects(histogram.size() == histogram_length);
 
 	constexpr int block_dim = 256;
-	constexpr int num_histograms = 80;
-	constexpr int num_sh_histograms = block_dim / warp_size;
+	// RTX 2080 Ti has 68 SMs, `4*` to get best occupancy in practice
+	constexpr int num_histograms = 4 * 68;
+	constexpr int num_sh_histograms = 1;
 
 	auto c = cuda::make_launch_config(num_histograms, block_dim);
 
 	auto tmp_mem = make_not_a_vector<int>(num_histograms * histogram_length,
 	                                      delayed_memory_resource);
 
+	std::cout << "bit_offset = " << bit_offset << ", prefix = " << prefix
+	          << std::endl;
+
 	auto histograms = tmp_mem.to_span();
 
-	cuda::enqueue_launch(
-	    kernel::
-	        bin_values256<T, block_dim, num_histograms, num_sh_histograms, F>,
-	    stream,
-	    c,
-	    values.data(),
-	    values.size(),
-	    histograms.data(),
-	    bit_offset,
-	    prefix,
-	    unary_functor);
+	cuda::enqueue_launch(kernel::bin_values256<T,
+	                                           block_dim,
+	                                           num_histograms,
+	                                           num_sh_histograms,
+	                                           F0,
+	                                           F1>,
+	                     stream,
+	                     c,
+	                     values.data(),
+	                     values.size(),
+	                     histograms.data(),
+	                     bit_offset,
+	                     prefix,
+	                     unary_functor,
+	                     bin_index_transform);
 
 	cuda::enqueue_launch(kernel::sum_subsequent_into<int,
 	                                                 block_dim,
@@ -581,6 +1382,247 @@ void bin_values256(cuda::stream_t& stream,
 	                     cuda::make_launch_config(1, 256),
 	                     histograms.data(),
 	                     histogram.data());
+}
+
+template <typename T, class MemoryResource, class F0, class F1>
+void bin_values256(cuda::stream_t& stream,
+                   gsl_lite::span<const T> values,
+                   gsl_lite::span<int> histogram,
+                   int bit_offset,
+                   uint64_t prefix,
+                   int block_dim,
+                   int num_histograms,
+                   int num_sh_histograms,
+                   F0 unary_functor,
+                   F1 bin_index_transform,
+                   MemoryResource& delayed_memory_resource) {
+
+	constexpr int histogram_length = 256;
+	gsl_Expects(histogram.size() == histogram_length);
+
+	auto block_dim_v = makeshift::expand(
+	    block_dim, MAKESHIFT_CONSTVAL(std::array{64, 128, 256, 512}));
+	auto num_histograms_v = makeshift::expand(
+	    num_histograms,
+	    MAKESHIFT_CONSTVAL(std::array{68, 2 * 68, 3 * 68, 4 * 68, 8 * 68}));
+	auto num_sh_histograms_v = makeshift::expand(
+	    num_sh_histograms, MAKESHIFT_CONSTVAL(std::array{1, 2, 3, 4, 8}));
+
+	std::visit(
+	    [&](auto block_dim, auto num_histograms, auto num_sh_histograms) {
+		    auto num_warps = block_dim / warp_size;
+		    gsl_Expects(num_warps % num_sh_histograms == 0);
+		    gsl_Expects(num_warps >= num_sh_histograms);
+		    auto c =
+		        cuda::make_launch_config(int(num_histograms), int(block_dim));
+
+		    auto tmp_mem = make_not_a_vector<int>(
+		        num_histograms * histogram_length, delayed_memory_resource);
+
+		    auto histograms = tmp_mem.to_span();
+
+		    cuda::enqueue_launch(kernel::bin_values256<T,
+		                                               block_dim,
+		                                               num_histograms,
+		                                               num_sh_histograms,
+		                                               F0,
+		                                               F1>,
+		                         stream,
+		                         c,
+		                         values.data(),
+		                         values.size(),
+		                         histograms.data(),
+		                         bit_offset,
+		                         prefix,
+		                         unary_functor,
+		                         bin_index_transform);
+
+		    cuda::enqueue_launch(kernel::sum_subsequent_into<int,
+		                                                     block_dim,
+		                                                     histogram_length,
+		                                                     num_histograms>,
+		                         stream,
+		                         cuda::make_launch_config(1, 256),
+		                         histograms.data(),
+		                         histogram.data());
+	    },
+	    block_dim_v,
+	    num_histograms_v,
+	    num_sh_histograms_v);
+}
+
+template <typename T, class MemoryResource, class F0, class F1>
+void bin_values256_threadfence(cuda::stream_t& stream,
+                               gsl_lite::span<const T> values,
+                               gsl_lite::span<int> histogram,
+                               int bit_offset,
+                               uint64_t prefix,
+                               int block_dim,
+                               int num_histograms,
+                               int num_sh_histograms,
+                               F0 unary_functor,
+                               F1 bin_index_transform,
+                               MemoryResource& delayed_memory_resource) {
+
+	constexpr int histogram_length = 256;
+	gsl_Expects(histogram.size() == histogram_length);
+
+	auto block_dim_v =
+	    makeshift::expand(block_dim, MAKESHIFT_CONSTVAL(std::array{256, 512}));
+	auto num_histograms_v = makeshift::expand(
+	    num_histograms,
+	    MAKESHIFT_CONSTVAL(std::array{68, 2 * 68, 3 * 68, 4 * 68, 8 * 68}));
+	auto num_sh_histograms_v = makeshift::expand(
+	    num_sh_histograms, MAKESHIFT_CONSTVAL(std::array{1, 2, 3, 4, 8}));
+
+	auto tmp = make_not_a_vector<unsigned>(2, delayed_memory_resource);
+	auto tickets = tmp.to_span();
+
+	std::visit(
+	    [&](auto block_dim, auto num_histograms, auto num_sh_histograms) {
+		    async::fill(stream, tickets, 0);
+		    auto num_warps = block_dim / warp_size;
+		    gsl_Expects(num_warps % num_sh_histograms == 0);
+		    gsl_Expects(num_warps >= num_sh_histograms);
+		    auto c =
+		        cuda::make_launch_config(int(num_histograms), int(block_dim));
+
+		    auto tmp_mem = make_not_a_vector<int>(
+		        num_histograms * histogram_length, delayed_memory_resource);
+
+		    auto histograms = tmp_mem.to_span();
+
+		    cuda::enqueue_launch(
+		        kernel::bin_values256_threadfence<T,
+		                                          block_dim,
+		                                          num_histograms,
+		                                          num_sh_histograms,
+		                                          F0,
+		                                          F1>,
+		        stream,
+		        c,
+		        values.data(),
+		        values.size(),
+		        histograms.data(),
+		        bit_offset,
+		        prefix,
+		        unary_functor,
+		        bin_index_transform,
+		        tickets.data(),
+		        tickets.data() + 1);
+	    },
+	    block_dim_v,
+	    num_histograms_v,
+	    num_sh_histograms_v);
+}
+
+template <typename T, class MemoryResource, class F0, class F1>
+void bin_values256_atomic(cuda::stream_t& stream,
+                          gsl_lite::span<const T> values,
+                          gsl_lite::span<int> histogram,
+                          int bit_offset,
+                          uint64_t prefix,
+                          int block_dim,
+                          int grid_dim,
+                          int num_sh_histograms,
+                          F0 unary_functor,
+                          F1 bin_index_transform,
+                          MemoryResource& delayed_memory_resource) {
+
+	constexpr int histogram_length = 256;
+	gsl_Expects(histogram.size() == histogram_length);
+
+	auto block_dim_v =
+	    makeshift::expand(block_dim, MAKESHIFT_CONSTVAL(std::array{256, 512}));
+	auto grid_dim_v = makeshift::expand(
+	    grid_dim,
+	    MAKESHIFT_CONSTVAL(std::array{68, 2 * 68, 3 * 68, 4 * 68, 8 * 68}));
+	auto num_sh_histograms_v = makeshift::expand(
+	    num_sh_histograms, MAKESHIFT_CONSTVAL(std::array{1, 2, 3, 4, 8}));
+
+	std::visit(
+	    [&](auto block_dim, auto grid_dim, auto num_sh_histograms) {
+		    async::fill(stream, histogram, 0);
+		    auto num_warps = block_dim / warp_size;
+		    gsl_Expects(num_warps % num_sh_histograms == 0);
+		    gsl_Expects(num_warps >= num_sh_histograms);
+		    auto c = cuda::make_launch_config(int(grid_dim), int(block_dim));
+
+		    cuda::enqueue_launch(kernel::bin_values256_atomic<T,
+		                                                      block_dim,
+		                                                      grid_dim,
+		                                                      num_sh_histograms,
+		                                                      F0,
+		                                                      F1>,
+		                         stream,
+		                         c,
+		                         values.data(),
+		                         values.size(),
+		                         histogram.data(),
+		                         bit_offset,
+		                         prefix,
+		                         unary_functor,
+		                         bin_index_transform);
+	    },
+	    block_dim_v,
+	    grid_dim_v,
+	    num_sh_histograms_v);
+}
+
+template <typename T, class MemoryResource, class F0, class F1>
+void bin_values256_atomic_with_ptr(cuda::stream_t& stream,
+                                   gsl_lite::span<const T> values,
+                                   gsl_lite::span<int> histogram,
+                                   int bit_offset,
+                                   uint64_t* prefix,
+                                   int* k,
+                                   int block_dim,
+                                   int grid_dim,
+                                   int num_sh_histograms,
+                                   F0 unary_functor,
+                                   F1 bin_index_transform,
+                                   MemoryResource& delayed_memory_resource) {
+
+	constexpr int histogram_length = 256;
+	gsl_Expects(histogram.size() == histogram_length);
+
+	auto block_dim_v =
+	    makeshift::expand(block_dim, MAKESHIFT_CONSTVAL(std::array{256, 512}));
+	auto grid_dim_v = makeshift::expand(
+	    grid_dim,
+	    MAKESHIFT_CONSTVAL(std::array{68, 2 * 68, 3 * 68, 4 * 68, 8 * 68}));
+	auto num_sh_histograms_v = makeshift::expand(
+	    num_sh_histograms, MAKESHIFT_CONSTVAL(std::array{1, 2, 3, 4, 8}));
+
+	std::visit(
+	    [&](auto block_dim, auto grid_dim, auto num_sh_histograms) {
+		    async::fill(stream, histogram, 0);
+		    auto num_warps = block_dim / warp_size;
+		    gsl_Expects(num_warps % num_sh_histograms == 0);
+		    gsl_Expects(num_warps >= num_sh_histograms);
+		    auto c = cuda::make_launch_config(int(grid_dim), int(block_dim));
+
+		    cuda::enqueue_launch(
+		        kernel::bin_values256_atomic_with_ptr<T,
+		                                              block_dim,
+		                                              grid_dim,
+		                                              num_sh_histograms,
+		                                              F0,
+		                                              F1>,
+		        stream,
+		        c,
+		        values.data(),
+		        values.size(),
+		        histogram.data(),
+		        bit_offset,
+		        prefix,
+		        k,
+		        unary_functor,
+		        bin_index_transform);
+	    },
+	    block_dim_v,
+	    grid_dim_v,
+	    num_sh_histograms_v);
 }
 
 } // namespace async
@@ -596,21 +1638,40 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix(
 		using std::abs;
 		return abs(x);
 	};
+	using IH = int;
+	auto bin_index_transform = [] __device__(IH i) { return i; };
 
 	constexpr int histogram_length = 256;
-	auto tmp =
-	    make_not_a_vector<int>(histogram_length, delayed_memory_resource);
+	auto tmp = make_not_a_vector<IH>(histogram_length, delayed_memory_resource);
+
 	auto histogram = tmp.to_span();
+
+	// {
+	// 	const size_t s = histogram.size() * sizeof(IH);
+	// 	void* ptr = reinterpret_cast<void*>(histogram.data());
+	// 	cuda::memory::managed::region_t mr{ptr, s};
+	// 	static auto device = stream.device();
+	// 	static bool b = false;
+	// 	if (!b) {
+	// 		mr.set_preferred_location(device);
+	// 		b = true;
+	// 	}
+	// }
 
 	uint64_t prefix = 0;
 	for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8); bit_offset += 8) {
-		async::bin_values256<T>(stream,
-		                        values,
-		                        histogram,
-		                        bit_offset,
-		                        prefix,
-		                        unary_functor,
-		                        delayed_memory_resource);
+		async::bin_values256<T>(
+		    stream,
+		    values,
+		    histogram,
+		    bit_offset,
+		    prefix,
+		    256, // block dim // params determined empirically by benchmarks
+		    3 * 68, // num histos
+		    1, // num sh histo
+		    unary_functor,
+		    bin_index_transform,
+		    delayed_memory_resource);
 		stream.synchronize();
 		int acc = histogram[histogram_length - 1];
 		int acc_prev = 0;
@@ -627,6 +1688,323 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix(
 			}
 			acc_prev = acc;
 		}
+	}
+	return {prefix, sizeof(T) * 8};
+}
+
+template <typename T, class MemoryResource>
+std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic(
+    cuda::stream_t& stream,
+    gsl_lite::span<const T> values,
+    int k,
+    MemoryResource& delayed_memory_resource) {
+
+	auto unary_functor = [] __device__(T x) {
+		using std::abs;
+		return abs(x);
+	};
+	using IH = int;
+	auto bin_index_transform = [] __device__(IH i) { return i; };
+
+	constexpr int histogram_length = 256;
+	auto tmp = make_not_a_vector<IH>(histogram_length, delayed_memory_resource);
+
+	auto histogram = tmp.to_span();
+
+	//{
+	//	const size_t s = histogram.size() * sizeof(IH);
+	//	void* ptr = reinterpret_cast<void*>(histogram.data());
+	//	cuda::memory::managed::region_t mr{ptr, s};
+	//	static auto device = stream.device();
+	//	static bool b = false;
+	//	if (!b) {
+	//		//mr.set_preferred_location(device);
+	//		//cudaMemAdvise(ptr, s, cudaMemAdviseSetAccessedBy, cudaCpuDeviceId);
+	//		cudaMemAdvise(ptr, s, cudaMemAdviseSetAccessedBy, device.id());
+	//		b = true;
+	//	}
+	//}
+
+	uint64_t prefix = 0;
+	for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8); bit_offset += 8) {
+		async::bin_values256_atomic<T>(
+		    stream,
+		    values,
+		    histogram,
+		    bit_offset,
+		    prefix,
+		    256, // block dim // params determined empirically by benchmarks
+		    68 * 4, // grid dim
+		    1, // num sh histo
+		    unary_functor,
+		    bin_index_transform,
+		    delayed_memory_resource);
+		stream.synchronize();
+		int acc = histogram[histogram_length - 1];
+		int acc_prev = 0;
+		for (int i = histogram_length - 2; i >= 0; --i) {
+			acc += histogram[i];
+			if (acc >= k) {
+				prefix = (prefix << 8) | uint64_t(i);
+				if (acc == k) {
+					// all values with this prefix and larger are included
+					return {prefix, bit_offset + 8};
+				}
+				k = k - acc_prev;
+				break;
+			}
+			acc_prev = acc;
+		}
+	}
+	return {prefix, sizeof(T) * 8};
+
+	// HACK BEGIN
+	// constexpr std::array<uint64_t, 4> prefixes{0, 75, 19224, 4921493};
+	// for (int bit_offset = 0, i = 0; bit_offset < int(sizeof(T) * 8);
+	//      bit_offset += 8, ++i) {
+	// 	uint64_t prefix = prefixes[i];
+	// 	async::bin_values256_atomic<T>(
+	// 	    stream,
+	// 	    values,
+	// 	    histogram,
+	// 	    bit_offset,
+	// 	    prefix,
+	// 	    256, // block dim // params determined empirically by benchmarks
+	// 	    68 * 4, // grid dim
+	// 	    1, // num sh histo
+	// 	    unary_functor,
+	// 	    bin_index_transform,
+	// 	    delayed_memory_resource);
+	// 	stream.synchronize();
+	// 	// int acc = histogram[histogram_length - 1];
+	// 	// int acc_prev = 0;
+	// 	// for (int i = histogram_length - 2; i >= 0; --i) {
+	// 	// 	acc += histogram[i];
+	// 	// 	if (acc >= k) {
+	// 	// 		prefix = (prefix << 8) | uint64_t(i);
+	// 	// 		if (acc == k) {
+	// 	// 			// all values with this prefix and larger are included
+	// 	// 			return {prefix, bit_offset + 8};
+	// 	// 		}
+	// 	// 		k = k - acc_prev;
+	// 	// 		break;
+	// 	// 	}
+	// 	// 	acc_prev = acc;
+	// 	// }
+	// }
+	// return {prefixes[3], sizeof(T) * 8};
+	// HACK END
+}
+
+template <typename T, class MemoryResource>
+std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic_devicehisto(
+    cuda::stream_t& stream,
+    gsl_lite::span<const T> values,
+    int k,
+    MemoryResource& delayed_memory_resource) {
+
+	auto unary_functor = [] __device__(T x) {
+		using std::abs;
+		return abs(x);
+	};
+	using IH = int;
+
+	constexpr int histogram_length = 256;
+	auto bin_index_transform = [] __device__(IH i) {
+		return histogram_length - i - 1;
+	};
+
+	auto tmp = make_not_a_vector<IH>(histogram_length, delayed_memory_resource);
+	auto tmp0 = make_not_a_vector<uint64_t>(1, delayed_memory_resource);
+	auto tmp1 = make_not_a_vector<int>(1, delayed_memory_resource);
+	auto prefix_s = tmp0.to_span();
+	auto k_s = tmp1.to_span();
+	async::fill(stream, k_s, k);
+
+	auto histogram = tmp.to_span();
+	uint64_t prefix = 0;
+
+	for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8); bit_offset += 8) {
+		async::bin_values256_atomic<T>(
+		    stream,
+		    values,
+		    histogram,
+		    bit_offset,
+		    prefix,
+		    256, // block dim // params determined empirically by benchmarks
+		    68 * 4, // grid dim
+		    1, // num sh histo
+		    unary_functor,
+		    bin_index_transform,
+		    delayed_memory_resource);
+
+		cuda::enqueue_launch(kernel::k_select_radix_from_histogram<IH, 256>,
+		                     stream,
+		                     cuda::make_launch_config(1, 256),
+		                     histogram.data(),
+		                     bit_offset,
+		                     prefix_s.data(),
+		                     k_s.data());
+		stream.synchronize();
+		prefix = (prefix << 8) | prefix_s[0];
+		k = k_s[0];
+		if (k <= 0) {
+			return {prefix, bit_offset + 8};
+		}
+	}
+	return {prefix, sizeof(T) * 8};
+	// HACK BEGIN
+	// constexpr std::array<uint64_t, 4> prefixes{0, 75, 19224, 4921493};
+	// for (int bit_offset = 0, i = 0; bit_offset < int(sizeof(T) * 8);
+	//      bit_offset += 8, ++i) {
+	// 	uint64_t prefix = prefixes[i];
+	// 	async::bin_values256_atomic<T>(
+	// 	    stream,
+	// 	    values,
+	// 	    histogram,
+	// 	    bit_offset,
+	// 	    prefix,
+	// 	    256, // block dim // params determined empirically by benchmarks
+	// 	    68 * 4, // grid dim
+	// 	    1, // num sh histo
+	// 	    unary_functor,
+	// 	    bin_index_transform,
+	// 	    delayed_memory_resource);
+
+	// 	cuda::enqueue_launch(kernel::k_select_radix_from_histogram<IH, 256>,
+	// 	                     stream,
+	// 	                     cuda::make_launch_config(1, 256),
+	// 	                     histogram.data(),
+	// 	                     bit_offset,
+	// 	                     prefix_s.data(),
+	// 	                     k_s.data());
+	// 	// stream.synchronize();
+	// 	// prefix = (prefix << 8) | prefix_s[0];
+	// 	// k = k_s[0];
+	// 	// if (k <= 0) {
+	// 	// 	return {prefix, bit_offset + 8};
+	// 	// }
+	// }
+	// return {prefixes[3], sizeof(T) * 8};
+	// HACK END
+}
+
+namespace async {
+
+template <typename T, class MemoryResource>
+void k_largest_values_abs_radix_atomic_devicehisto_with_ptr(
+    cuda::stream_t& stream,
+    gsl_lite::span<const T> values,
+    uint64_t* prefix, // only output
+    int* bit_offset, //only output
+    int k,
+    MemoryResource& delayed_memory_resource) {
+
+	auto unary_functor = [] __device__(T x) {
+		using std::abs;
+		return abs(x);
+	};
+	using IH = int;
+
+	constexpr int histogram_length = 256;
+	auto bin_index_transform = [] __device__(IH i) {
+		return histogram_length - i - 1;
+	};
+
+	auto tmp = make_not_a_vector<IH>(histogram_length, delayed_memory_resource);
+	auto tmp1 = make_not_a_vector<int>(1, delayed_memory_resource);
+	auto k_s = tmp1.to_span();
+	gsl_lite::span<int> bit_offset_s({bit_offset, 1});
+	gsl_lite::span<uint64_t> prefix_s({prefix, 1});
+	async::fill(stream, k_s, k);
+	async::fill(stream, bit_offset_s, 0);
+	async::fill(stream, prefix_s, 0);
+
+	auto histogram = tmp.to_span();
+
+	for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8); bit_offset += 8) {
+
+		async::bin_values256_atomic_with_ptr<T>(
+		    stream,
+		    values,
+		    histogram,
+		    bit_offset,
+		    prefix_s.data(),
+		    k_s.data(),
+		    256, // block dim // params determined empirically by benchmarks
+		    68 * 4, // grid dim
+		    1, // num sh histo
+		    unary_functor,
+		    bin_index_transform,
+		    delayed_memory_resource);
+
+		cuda::enqueue_launch(
+		    kernel::k_select_radix_from_histogram_with_ptr<IH, 256>,
+		    stream,
+		    cuda::make_launch_config(1, 256),
+		    histogram.data(),
+		    bit_offset_s.data(),
+		    prefix_s.data(),
+		    k_s.data());
+	}
+}
+
+} // namespace async
+
+template <typename T, class MemoryResource>
+std::tuple<uint64_t, int> k_largest_values_abs_radix_with_cub(
+    cuda::stream_t& stream,
+    gsl_lite::span<const T> values,
+    int k,
+    MemoryResource& delayed_memory_resource) {
+
+	constexpr int histogram_length = 256;
+	auto tmp =
+	    make_not_a_vector<int>(histogram_length, delayed_memory_resource);
+	auto histogram = tmp.to_span();
+
+	using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
+
+	uint64_t prefix = 0;
+	I lower_level = 0; // inclusive
+	I upper_level = std::numeric_limits<I>::max(); // exclusive
+	const int N = values.size();
+
+	for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8); bit_offset += 8) {
+
+		auto sample_iterator = thrust::make_transform_iterator(
+		    values.data(), [prefix, bit_offset] __device__(const T& x) {
+			    using std::abs;
+			    const T abs_x = abs(x);
+			    const I i = *reinterpret_cast<I*>((void*) (&abs_x));
+			    return i;
+		    });
+		async::bin_values_into_histogram(stream,
+		                                 sample_iterator,
+		                                 histogram.begin(),
+		                                 histogram_length,
+		                                 lower_level,
+		                                 upper_level,
+		                                 N,
+		                                 delayed_memory_resource);
+		stream.synchronize();
+		int acc = histogram[histogram_length - 1];
+		int acc_prev = 0;
+		for (int i = histogram_length - 2; i >= 0; --i) {
+			acc += histogram[i];
+			if (acc >= k) {
+				prefix = (prefix << 8) | uint64_t(i);
+				if (acc == k) {
+					// all values with this prefix and larger are included
+					return {prefix, bit_offset + 8};
+				}
+				k = k - acc_prev;
+				break;
+			}
+			acc_prev = acc;
+		}
+		lower_level = prefix << (sizeof(I) * 8 - (bit_offset + 8));
+		upper_level = (prefix + 1) << (sizeof(I) * 8 - (bit_offset + 8));
 	}
 	return {prefix, sizeof(T) * 8};
 }
@@ -664,5 +2042,376 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 	                            delayed_memory_resource);
 	stream.synchronize();
 }
+
+template <typename T, class MemoryResource>
+void select_k_largest_values_abs_atomic(
+    cuda::stream_t& stream,
+    gsl_lite::span<const T> values,
+    gsl_lite::span<T> selected_values,
+    gsl_lite::span<int> selected_indices,
+    int k,
+    MemoryResource& delayed_memory_resource) {
+
+	const auto tup = thrustshift::k_largest_values_abs_radix_atomic<T>(
+	    stream, values, k, delayed_memory_resource);
+	const auto prefix = std::get<0>(tup);
+	const auto bit_offset = std::get<1>(tup);
+	auto select_op = [prefix,
+	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+		using std::abs;
+		auto x = abs(thrust::get<0>(tup));
+		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
+		const I i = *reinterpret_cast<I*>((void*) (&x));
+		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
+	};
+	auto tmp = make_not_a_vector<int>(1, delayed_memory_resource);
+	auto num_selected = tmp.to_span();
+
+	async::select_if_with_index(stream,
+	                            values,
+	                            selected_values,
+	                            selected_indices,
+	                            num_selected.data(),
+	                            select_op,
+	                            delayed_memory_resource);
+	stream.synchronize();
+}
+
+// selected_values.size() == values.size() because CUB might select more values, if e.g. values are all equal
+template <typename T, class MemoryResource>
+void select_k_largest_values_abs_with_cub(
+    cuda::stream_t& stream,
+    gsl_lite::span<const T> values,
+    gsl_lite::span<T> selected_values,
+    gsl_lite::span<int> selected_indices,
+    int k,
+    MemoryResource& delayed_memory_resource) {
+
+	const auto tup = thrustshift::k_largest_values_abs_radix_with_cub<T>(
+	    stream, values, k, delayed_memory_resource);
+	const auto prefix = std::get<0>(tup);
+	const auto bit_offset = std::get<1>(tup);
+	auto select_op = [prefix,
+	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+		using std::abs;
+		auto x = abs(thrust::get<0>(tup));
+		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
+		const I i = *reinterpret_cast<I*>((void*) (&x));
+		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
+	};
+	auto tmp = make_not_a_vector<int>(1, delayed_memory_resource);
+	auto num_selected = tmp.to_span();
+
+	async::select_if_with_index(stream,
+	                            values,
+	                            selected_values,
+	                            selected_indices,
+	                            num_selected.data(),
+	                            select_op,
+	                            delayed_memory_resource);
+	stream.synchronize();
+}
+
+namespace cooperative {
+
+template <typename T, class MemoryResource>
+void select_k_largest_values_abs(cuda::stream_t& stream,
+                                 gsl_lite::span<const T> values,
+                                 gsl_lite::span<T> selected_values,
+                                 gsl_lite::span<int> selected_indices,
+                                 int k,
+                                 MemoryResource& delayed_memory_resource) {
+
+	constexpr int histogram_length = 256;
+	constexpr int block_dim = 256;
+	constexpr int grid_dim = 2 * 68;
+	constexpr int num_sh_histograms = 1;
+
+	auto tmp = make_not_a_vector<int>(3, delayed_memory_resource);
+	auto tmp1 = make_not_a_vector<uint64_t>(1, delayed_memory_resource);
+	auto tmp2 = make_not_a_vector<unsigned>(histogram_length * grid_dim,
+	                                        delayed_memory_resource);
+
+	auto num_selected = tmp.to_span().first(1);
+	auto bit_offset_s = tmp.to_span().subspan(1, 1);
+	auto prefix_s = tmp1.to_span().first(1);
+	auto histograms = tmp2.to_span();
+	auto k_s = tmp.to_span().subspan(2, 1);
+	k_s[0] = k;
+
+	auto c = cuda::make_launch_config(grid_dim, block_dim);
+	const int N = values.size();
+
+	cuda::enqueue_launch(
+	    cuda::thread_blocks_may_cooperate,
+	    kernel::
+	        k_select_radix<T, unsigned, block_dim, grid_dim, num_sh_histograms>,
+	    stream,
+	    c,
+	    values.data(),
+	    N,
+	    histograms.data(),
+	    bit_offset_s.data(),
+	    prefix_s.data(),
+	    k_s.data());
+	stream.synchronize();
+
+	const auto prefix = prefix_s[0];
+	const auto bit_offset = bit_offset_s[0];
+	auto select_op = [prefix,
+	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+		using std::abs;
+		auto x = abs(thrust::get<0>(tup));
+		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
+		const I i = *reinterpret_cast<I*>((void*) (&x));
+		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
+	};
+
+	async::select_if_with_index(stream,
+	                            values,
+	                            selected_values,
+	                            selected_indices,
+	                            num_selected.data(),
+	                            select_op,
+	                            delayed_memory_resource);
+	stream.synchronize();
+}
+
+template <typename T, class MemoryResource>
+void select_k_largest_values_abs2(cuda::stream_t& stream,
+                                  gsl_lite::span<const T> values,
+                                  gsl_lite::span<T> selected_values,
+                                  gsl_lite::span<int> selected_indices,
+                                  int k,
+                                  MemoryResource& delayed_memory_resource) {
+
+	constexpr int histogram_length = 256;
+	constexpr int block_dim = 256;
+	constexpr int grid_dim = 2 * 68;
+	constexpr int num_sh_histograms = 1;
+
+	auto tmp = make_not_a_vector<int>(3, delayed_memory_resource);
+	auto tmp1 = make_not_a_vector<uint64_t>(1, delayed_memory_resource);
+	auto tmp2 = make_not_a_vector<unsigned>(histogram_length * grid_dim * 4,
+	                                        delayed_memory_resource);
+
+	auto num_selected = tmp.to_span().first(1);
+	auto bit_offset_s = tmp.to_span().subspan(1, 1);
+	auto prefix_s = tmp1.to_span().first(1);
+	auto histograms = tmp2.to_span();
+	auto k_s = tmp.to_span().subspan(2, 1);
+	k_s[0] = k;
+
+	auto c = cuda::make_launch_config(grid_dim, block_dim);
+	const int N = values.size();
+
+	cuda::enqueue_launch(cuda::thread_blocks_may_cooperate,
+	                     kernel::k_select_radix2<T,
+	                                             unsigned,
+	                                             block_dim,
+	                                             grid_dim,
+	                                             num_sh_histograms>,
+	                     stream,
+	                     c,
+	                     values.data(),
+	                     N,
+	                     histograms.data(),
+	                     bit_offset_s.data(),
+	                     prefix_s.data(),
+	                     k);
+	stream.synchronize();
+
+	const auto prefix = prefix_s[0];
+	const auto bit_offset = bit_offset_s[0];
+	auto select_op = [prefix,
+	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+		using std::abs;
+		auto x = abs(thrust::get<0>(tup));
+		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
+		const I i = *reinterpret_cast<I*>((void*) (&x));
+		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
+	};
+
+	async::select_if_with_index(stream,
+	                            values,
+	                            selected_values,
+	                            selected_indices,
+	                            num_selected.data(),
+	                            select_op,
+	                            delayed_memory_resource);
+	stream.synchronize();
+}
+
+} // namespace cooperative
+
+namespace dynamic_parallelism {
+
+template <typename T, class MemoryResource>
+std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic_binning(
+    cuda::stream_t& stream,
+    gsl_lite::span<const T> values,
+    int k,
+    bool nosync,
+    MemoryResource& delayed_memory_resource) {
+
+	constexpr int histogram_length = 256;
+	constexpr int block_dim = 256;
+	constexpr int child_grid_dim = 68 * 4;
+	constexpr int num_sh_histograms = 1;
+
+	using IH = int;
+	auto tmp = make_not_a_vector<int>(1, delayed_memory_resource);
+	auto tmp1 = make_not_a_vector<uint64_t>(1, delayed_memory_resource);
+	auto tmp2 =
+	    make_not_a_vector<IH>(histogram_length, delayed_memory_resource);
+
+	auto bit_offset_s = tmp.to_span();
+	auto prefix_s = tmp1.to_span();
+	auto histogram = tmp2.to_span();
+
+	auto c = cuda::make_launch_config(1, block_dim);
+	const int N = values.size();
+
+	cuda::enqueue_launch(
+	    kernel::k_select_radix_dynamic_parallelism_atomic_binning<
+	        T,
+	        IH,
+	        block_dim,
+	        num_sh_histograms,
+	        child_grid_dim>,
+	    stream,
+	    c,
+	    values.data(),
+	    N,
+	    histogram.data(),
+	    bit_offset_s.data(),
+	    prefix_s.data(),
+	    k);
+	// Alternatively give CUB select if a lambda, which accesses the values, which are already on the GPU
+	if (!nosync) {
+		stream.synchronize();
+		return {prefix_s[0], bit_offset_s[0]};
+	}
+	else {
+		return {0, 0};
+	}
+}
+
+template <typename T, class MemoryResource>
+void select_k_largest_values_abs(cuda::stream_t& stream,
+                                 gsl_lite::span<const T> values,
+                                 gsl_lite::span<T> selected_values,
+                                 gsl_lite::span<int> selected_indices,
+                                 int k,
+                                 MemoryResource& delayed_memory_resource) {
+
+	constexpr int histogram_length = 256;
+	constexpr int block_dim = 256;
+	constexpr int num_sh_histograms = 1;
+	constexpr int num_gl_histograms = 1 * 68;
+
+	using IH = int;
+	auto tmp = make_not_a_vector<int>(3, delayed_memory_resource);
+	auto tmp1 = make_not_a_vector<uint64_t>(1, delayed_memory_resource);
+	auto tmp2 = make_not_a_vector<IH>(histogram_length * num_gl_histograms,
+	                                  delayed_memory_resource);
+
+	auto num_selected = tmp.to_span().first(1);
+	auto bit_offset_s = tmp.to_span().subspan(1, 1);
+	auto prefix_s = tmp1.to_span().first(1);
+	auto histograms = tmp2.to_span();
+	// auto k_s = tmp.to_span().subspan(2, 1);
+	// k_s[0] = k;
+
+	auto c = cuda::make_launch_config(1, block_dim);
+	const int N = values.size();
+
+	cuda::enqueue_launch(
+	    kernel::k_select_radix_dynamic_parallelism<T,
+	                                               IH,
+	                                               block_dim,
+	                                               num_sh_histograms,
+	                                               num_gl_histograms>,
+	    stream,
+	    c,
+	    values.data(),
+	    N,
+	    histograms.data(),
+	    bit_offset_s.data(),
+	    prefix_s.data(),
+	    k);
+	stream.synchronize();
+
+	const auto prefix = prefix_s[0];
+	const auto bit_offset = bit_offset_s[0];
+	auto select_op = [prefix,
+	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+		using std::abs;
+		auto x = abs(thrust::get<0>(tup));
+		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
+		const I i = *reinterpret_cast<I*>((void*) (&x));
+		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
+	};
+
+	async::select_if_with_index(stream,
+	                            values,
+	                            selected_values,
+	                            selected_indices,
+	                            num_selected.data(),
+	                            select_op,
+	                            delayed_memory_resource);
+	stream.synchronize();
+}
+
+} // namespace dynamic_parallelism
+
+namespace async {
+
+template <typename T, class MemoryResource>
+void select_k_largest_values_abs(cuda::stream_t& stream,
+                                 gsl_lite::span<const T> values,
+                                 gsl_lite::span<T> selected_values,
+                                 gsl_lite::span<int> selected_indices,
+                                 int k,
+                                 MemoryResource& delayed_memory_resource) {
+
+	auto tmp0 = make_not_a_vector<uint64_t>(1, delayed_memory_resource);
+	auto prefix_s = tmp0.to_span();
+	auto tmp1 = make_not_a_vector<int>(1, delayed_memory_resource);
+	auto bit_offset_s = tmp1.to_span();
+
+	uint64_t* prefix_ptr = prefix_s.data();
+	int* bit_offset_ptr = bit_offset_s.data();
+
+	async::k_largest_values_abs_radix_atomic_devicehisto_with_ptr<T>(
+	    stream, values, prefix_ptr, bit_offset_ptr, k, delayed_memory_resource);
+
+	auto select_op = [prefix_ptr, bit_offset_ptr] __device__(
+	                     const thrust::tuple<T, int>& tup) {
+		using std::abs;
+		auto x = abs(thrust::get<0>(tup));
+		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
+		const I i = *reinterpret_cast<I*>((void*) (&x));
+		// No performance effects measured when we load these values here from
+		// global memory. Probably they end up in the caches and can be loaded fast.
+		uint64_t prefix = *prefix_ptr;
+		int bit_offset = *bit_offset_ptr;
+		// uint64_t prefix = 1259902258;
+		// int bit_offset = 32;
+		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
+	};
+	auto tmp = make_not_a_vector<int>(1, delayed_memory_resource);
+	auto num_selected = tmp.to_span();
+
+	async::select_if_with_index(stream,
+	                            values,
+	                            selected_values,
+	                            selected_indices,
+	                            num_selected.data(),
+	                            select_op,
+	                            delayed_memory_resource);
+}
+
+} // namespace async
 
 } // namespace thrustshift
