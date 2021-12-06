@@ -29,6 +29,7 @@ cmakeshift_install_basic_package_files(
   "cuda-api-wrappers"
   "CUB"
   "sysmakeshift"
+  "makeshift"
   "gsl-lite"
   "cuda-kat"
 )
