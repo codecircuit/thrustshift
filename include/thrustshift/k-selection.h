@@ -691,6 +691,7 @@ template <typename T,
           int block_dim,
           int grid_dim,
           int num_sh_histograms,
+          bool use_k0_and_zero_prefix,
           class F0,
           class F1>
 __global__ void bin_values256_atomic_with_ptr(const T* data,
@@ -699,6 +700,7 @@ __global__ void bin_values256_atomic_with_ptr(const T* data,
                                               int bit_offset,
                                               uint64_t* prefix_,
                                               int* k_,
+                                              int k0,
                                               F0 unary_functor,
                                               F1 bin_index_transform) {
 
@@ -712,11 +714,27 @@ __global__ void bin_values256_atomic_with_ptr(const T* data,
 
 	const int tid = threadIdx.x;
 	const int bid = blockIdx.x;
-	int k = *k_;
+
+	const int k = [&] {
+		if constexpr (use_k0_and_zero_prefix) {
+			return k0;
+		}
+		else {
+			return *k_;
+		}
+	}();
 	if (k <= 0) {
 		return;
 	}
-	uint64_t prefix = *prefix_;
+
+	const uint64_t prefix = [&]() -> uint64_t {
+		if constexpr (use_k0_and_zero_prefix) {
+			return 0;
+		}
+		else {
+			return *prefix_;
+		}
+	}();
 
 	device_function::explicit_unroll::
 	    fill<histogram_value_type, block_dim, all_sh_histograms_length>(
@@ -1272,11 +1290,12 @@ __global__ void k_select_radix_from_histogram(IH* histogram,
 	}
 }
 
-template <typename IH, int block_dim>
+template <typename IH, int block_dim, bool initialize_offset_prefix_k>
 __global__ void k_select_radix_from_histogram_with_ptr(IH* histogram,
                                                        int* bit_offset_,
                                                        uint64_t* prefix_,
-                                                       int* k_) {
+                                                       int* k_,
+                                                       int k0) {
 
 	constexpr int histogram_length = 256;
 
@@ -1292,9 +1311,31 @@ __global__ void k_select_radix_from_histogram_with_ptr(IH* histogram,
 	const int tid = threadIdx.x;
 	const int bid = blockIdx.x;
 
-	uint64_t prefix = *prefix_;
-	int k = *k_;
-	int bit_offset = *bit_offset_;
+	uint64_t prefix = [&]() -> uint64_t {
+		if constexpr (initialize_offset_prefix_k) {
+			return 0;
+		}
+		else {
+			return *prefix_;
+		}
+	}();
+	int k = [&] {
+		if constexpr (initialize_offset_prefix_k) {
+			return k0;
+		}
+		else {
+			return *k_;
+		}
+	}();
+	int bit_offset = [&] {
+		if constexpr (initialize_offset_prefix_k) {
+			return 0;
+		}
+		else {
+			return *bit_offset_;
+		}
+	}();
+
 	if (k <= 0) {
 		return;
 	}
@@ -1576,6 +1617,8 @@ void bin_values256_atomic_with_ptr(cuda::stream_t& stream,
                                    int bit_offset,
                                    uint64_t* prefix,
                                    int* k,
+                                   int k0,
+                                   bool use_k0_and_zero_prefix,
                                    int block_dim,
                                    int grid_dim,
                                    int num_sh_histograms,
@@ -1593,9 +1636,14 @@ void bin_values256_atomic_with_ptr(cuda::stream_t& stream,
 	    MAKESHIFT_CONSTVAL(std::array{68, 2 * 68, 3 * 68, 4 * 68, 8 * 68}));
 	auto num_sh_histograms_v = makeshift::expand(
 	    num_sh_histograms, MAKESHIFT_CONSTVAL(std::array{1, 2, 3, 4, 8}));
+	auto use_k0_and_zero_prefix_v = makeshift::expand(
+	    use_k0_and_zero_prefix, MAKESHIFT_CONSTVAL(std::array{true, false}));
 
 	std::visit(
-	    [&](auto block_dim, auto grid_dim, auto num_sh_histograms) {
+	    [&](auto block_dim,
+	        auto grid_dim,
+	        auto num_sh_histograms,
+	        auto use_k0_and_zero_prefix) {
 		    async::fill(stream, histogram, 0);
 		    auto num_warps = block_dim / warp_size;
 		    gsl_Expects(num_warps % num_sh_histograms == 0);
@@ -1607,6 +1655,7 @@ void bin_values256_atomic_with_ptr(cuda::stream_t& stream,
 		                                              block_dim,
 		                                              grid_dim,
 		                                              num_sh_histograms,
+		                                              use_k0_and_zero_prefix,
 		                                              F0,
 		                                              F1>,
 		        stream,
@@ -1617,12 +1666,14 @@ void bin_values256_atomic_with_ptr(cuda::stream_t& stream,
 		        bit_offset,
 		        prefix,
 		        k,
+		        k0,
 		        unary_functor,
 		        bin_index_transform);
 	    },
 	    block_dim_v,
 	    grid_dim_v,
-	    num_sh_histograms_v);
+	    num_sh_histograms_v,
+	    use_k0_and_zero_prefix_v);
 }
 
 } // namespace async
@@ -1916,9 +1967,6 @@ void k_largest_values_abs_radix_atomic_devicehisto_with_ptr(
 	auto k_s = tmp1.to_span();
 	gsl_lite::span<int> bit_offset_s({bit_offset, 1});
 	gsl_lite::span<uint64_t> prefix_s({prefix, 1});
-	async::fill(stream, k_s, k);
-	async::fill(stream, bit_offset_s, 0);
-	async::fill(stream, prefix_s, 0);
 
 	auto histogram = tmp.to_span();
 
@@ -1931,6 +1979,8 @@ void k_largest_values_abs_radix_atomic_devicehisto_with_ptr(
 		    bit_offset,
 		    prefix_s.data(),
 		    k_s.data(),
+		    k,
+		    bit_offset == 0,
 		    256, // block dim // params determined empirically by benchmarks
 		    68 * 4, // grid dim
 		    1, // num sh histo
@@ -1938,14 +1988,22 @@ void k_largest_values_abs_radix_atomic_devicehisto_with_ptr(
 		    bin_index_transform,
 		    delayed_memory_resource);
 
-		cuda::enqueue_launch(
-		    kernel::k_select_radix_from_histogram_with_ptr<IH, 256>,
-		    stream,
-		    cuda::make_launch_config(1, 256),
-		    histogram.data(),
-		    bit_offset_s.data(),
-		    prefix_s.data(),
-		    k_s.data());
+		auto flag_v = makeshift::expand(
+		    bit_offset == 0, MAKESHIFT_CONSTVAL(std::array{true, false}));
+		std::visit(
+		    [&](auto flag) {
+			    cuda::enqueue_launch(
+			        kernel::
+			            k_select_radix_from_histogram_with_ptr<IH, 256, flag>,
+			        stream,
+			        cuda::make_launch_config(1, 256),
+			        histogram.data(),
+			        bit_offset_s.data(),
+			        prefix_s.data(),
+			        k_s.data(),
+			        k);
+		    },
+		    flag_v);
 	}
 }
 
