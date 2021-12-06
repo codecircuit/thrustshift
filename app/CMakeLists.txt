@@ -64,3 +64,16 @@ target_link_libraries(
 )
 
 ################################################################################
+
+add_executable(bench-bin-values256 "bench-bin-values256.cu")
+
+configure_thrustshift_app_target(bench-bin-values256)
+
+target_link_libraries(
+  bench-bin-values256
+  PRIVATE Boost::program_options thrustshift
+          cuda-api-wrappers::nvtx
+          CUDA::nvToolsExt # because the cuda-api-wrappers do not export the dependency correctly
+)
+
+################################################################################

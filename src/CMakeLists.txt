@@ -5,6 +5,7 @@ find_package(gsl-lite REQUIRED)
 find_package(cuda-api-wrappers REQUIRED)
 find_package(CUB REQUIRED)
 find_package(sysmakeshift REQUIRED)
+find_package(makeshift REQUIRED)
 find_package(cuda-kat REQUIRED)
 
 add_library(thrustshift INTERFACE)
@@ -20,6 +21,7 @@ target_link_libraries(
   INTERFACE
     gsl::gsl-lite-v1 cuda-api-wrappers::runtime-api sysmakeshift::sysmakeshift
     CUB::CUB
+    makeshift::makeshift
     cuda-kat::cuda-kat
 )
 

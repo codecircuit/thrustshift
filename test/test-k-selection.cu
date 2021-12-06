@@ -156,10 +156,58 @@ void do_k_selection_test(const k_selection_test_data_t<T>& td) {
 	thrustshift::pmr::delayed_pool_type<thrustshift::pmr::managed_resource_type>
 	    delayed_memory_resource;
 
-	thrustshift::managed_vector<thrust::tuple<T, int>> selected_values(N);
+	thrustshift::managed_vector<T> selected_values(N);
+	thrustshift::managed_vector<int> selected_indices(N);
 
-	select_k_largest_values_abs<T>(
-	    stream, v, selected_values, k, delayed_memory_resource);
+	async::select_k_largest_values_abs<T>(stream,
+	                                      v,
+	                                      selected_values,
+	                                      selected_indices,
+	                                      k,
+	                                      delayed_memory_resource);
+
+	device.synchronize();
+	std::set<T> gold_selected_unique;
+	std::set<T> contender_selected_unique;
+	for (const auto& e : selected_values_gold) {
+		gold_selected_unique.insert(std::get<0>(e));
+	}
+	for (const auto& e : selected_values) {
+		contender_selected_unique.insert(e);
+	}
+	const bool p = gold_selected_unique == contender_selected_unique;
+	for (const auto& g : gold_selected_unique) {
+		BOOST_TEST_CONTEXT("gold value  = " << g) {
+			const bool p = contender_selected_unique.find(g) !=
+			               contender_selected_unique.end();
+			BOOST_TEST(p);
+		}
+	}
+}
+
+template <typename T>
+void do_k_selection_test_cub(const k_selection_test_data_t<T>& td) {
+	const thrustshift::managed_vector<T> v(td.values.begin(), td.values.end());
+	const int k = td.k;
+	const std::size_t N = v.size();
+
+	auto device = cuda::device::current::get();
+	auto stream = device.default_stream();
+
+	const auto selected_values_gold = k_largest_abs_values_gold(v, k);
+
+	thrustshift::pmr::delayed_pool_type<thrustshift::pmr::managed_resource_type>
+	    delayed_memory_resource;
+
+	thrustshift::managed_vector<T> selected_values(N);
+	thrustshift::managed_vector<int> selected_indices(N);
+
+	select_k_largest_values_abs_with_cub<T>(stream,
+	                                        v,
+	                                        selected_values,
+	                                        selected_indices,
+	                                        k,
+	                                        delayed_memory_resource);
 
 	std::set<T> gold_selected_unique;
 	std::set<T> contender_selected_unique;
@@ -167,7 +215,7 @@ void do_k_selection_test(const k_selection_test_data_t<T>& td) {
 		gold_selected_unique.insert(std::get<0>(e));
 	}
 	for (const auto& e : selected_values) {
-		contender_selected_unique.insert(thrust::get<0>(e));
+		contender_selected_unique.insert(e);
 	}
 	const bool p = gold_selected_unique == contender_selected_unique;
 	for (const auto& g : gold_selected_unique) {
@@ -283,6 +331,14 @@ BOOST_DATA_TEST_CASE(test_k_selection_int, int_test_datas, td) {
 
 BOOST_DATA_TEST_CASE(test_k_selection_float, float_test_datas, td) {
 	do_k_selection_test(td);
+}
+
+BOOST_DATA_TEST_CASE(test_k_selection_cub_int, int_test_datas, td) {
+	do_k_selection_test_cub(td);
+}
+
+BOOST_DATA_TEST_CASE(test_k_selection_cub_float, float_test_datas, td) {
+	do_k_selection_test_cub(td);
 }
 
 BOOST_DATA_TEST_CASE(test_k_selection_intra_block,
