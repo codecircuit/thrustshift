@@ -1637,7 +1637,7 @@ void bin_values256_atomic_with_ptr(cuda::stream_t& stream,
 	auto num_sh_histograms_v = makeshift::expand(
 	    num_sh_histograms, MAKESHIFT_CONSTVAL(std::array{1, 2, 3, 4, 8}));
 	auto use_k0_and_zero_prefix_v = makeshift::expand(
-	    use_k0_and_zero_prefix, MAKESHIFT_CONSTVAL(std::array{true, false}));
+	    use_k0_and_zero_prefix, MAKESHIFT_CONSTVAL(std::array{0, 1}));
 
 	std::visit(
 	    [&](auto block_dim,
@@ -1988,8 +1988,8 @@ void k_largest_values_abs_radix_atomic_devicehisto_with_ptr(
 		    bin_index_transform,
 		    delayed_memory_resource);
 
-		auto flag_v = makeshift::expand(
-		    bit_offset == 0, MAKESHIFT_CONSTVAL(std::array{true, false}));
+		auto flag_v = makeshift::expand(bit_offset == 0,
+		                                MAKESHIFT_CONSTVAL(std::array{0, 1}));
 		std::visit(
 		    [&](auto flag) {
 			    cuda::enqueue_launch(
