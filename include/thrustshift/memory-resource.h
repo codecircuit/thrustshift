@@ -116,6 +116,8 @@ class delayed_pool_type : public std::pmr::memory_resource {
    public:
 	delayed_pool_type() = default;
 
+	delayed_pool_type(delayed_pool_type&&) = default;
+
 	~delayed_pool_type() noexcept {
 		for (auto& [page_id, book_page] : book_) {
 			for (auto& page_item : book_page) {
@@ -199,6 +201,8 @@ class delayed_fragmenting_pool_type : public std::pmr::memory_resource {
 
    public:
 	delayed_fragmenting_pool_type() = default;
+
+	delayed_fragmenting_pool_type(delayed_fragmenting_pool_type&&) = default;
 
 	~delayed_fragmenting_pool_type() noexcept {
 		for (auto& [page_id, book_page] : book_) {

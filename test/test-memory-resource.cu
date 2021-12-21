@@ -46,6 +46,21 @@ BOOST_AUTO_TEST_CASE(test_memory_resource) {
 	}
 }
 
+BOOST_AUTO_TEST_CASE(test_move_memory_resource) {
+
+	using Resource = pmr::delayed_pool_type<pmr::managed_resource_type>;
+	Resource mres;
+	static_assert(std::is_move_constructible<Resource>::value);
+	const int N = 1 << 15;
+	{ auto [nav, s] = make_not_a_vector_and_span<int>(N, mres); }
+
+	// Every container, which allocated memory with `mres` must be deconstructed before
+	// `mres` is moved.
+	auto mres2 = std::move(mres);
+
+	auto [nav2, s2] = make_not_a_vector_and_span<int>(N, mres2);
+}
+
 BOOST_AUTO_TEST_CASE(test_memory_resource_with_thrusts_reduce_by_key) {
 	pmr::delayed_pool_type<pmr::managed_resource_type> memory_resource;
 	auto device = cuda::device::current::get();
@@ -74,7 +89,7 @@ BOOST_AUTO_TEST_CASE(test_memory_resource_with_thrusts_reduce_by_key) {
 
 namespace {
 
-template<class MemoryResource>
+template <class MemoryResource>
 std::pmr::vector<float> construct(MemoryResource& mres) {
 	const int N = 2401;
 	std::pmr::vector<float> v0(2 * N, &mres);
@@ -82,13 +97,12 @@ std::pmr::vector<float> construct(MemoryResource& mres) {
 	return v;
 }
 
-}
+} // namespace
 
 // Closed Issue #2
-BOOST_AUTO_TEST_CASE(test_memory_resource_with_pmr_vector_construction, *boost::unit_test::disabled()) {
+BOOST_AUTO_TEST_CASE(test_memory_resource_with_pmr_vector_construction,
+                     *boost::unit_test::disabled()) {
 	pmr::delayed_pool_type<pmr::managed_resource_type> memory_resource;
-	{
-		auto v = construct(memory_resource);
-	}
+	{ auto v = construct(memory_resource); }
 	touch_all_memory_resource_pages(memory_resource);
 }
