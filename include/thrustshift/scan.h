@@ -14,7 +14,6 @@ namespace async {
 
 template <class ValuesInRange,
           class ValuesOutRange,
-          class NumSelectedPtr,
           class ScanOp,
           class MemoryResource>
 void inclusive_scan(cuda::stream_t& stream,
