@@ -13,9 +13,10 @@ add_library(thrustshift INTERFACE)
 target_include_directories(
   thrustshift
   INTERFACE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
-	"$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+# "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>" # if installed with spack, this variable expands to nothing
+  "$<INSTALL_INTERFACE:include>"
 )
-target_compile_features(thrustshift INTERFACE cxx_std_14)
+target_compile_features(thrustshift INTERFACE cxx_std_17)
 
 target_link_libraries(
   thrustshift
