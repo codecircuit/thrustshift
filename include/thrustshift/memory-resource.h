@@ -18,14 +18,15 @@ namespace pmr {
 class managed_resource_type : public std::pmr::memory_resource {
 	void* do_allocate(std::size_t bytes,
 	                  [[maybe_unused]] std::size_t alignment) override {
-		auto region = cuda::memory::managed::detail::allocate(bytes);
+		auto device = cuda::device::current::get();
+		auto region = cuda::memory::managed::allocate(device, bytes);
 		return region.get();
 	}
 
 	void do_deallocate(void* p,
 	                   [[maybe_unused]] std::size_t bytes,
 	                   [[maybe_unused]] std::size_t alignment) override {
-		cuda::memory::managed::detail::free(p);
+		cuda::memory::managed::free(p);
 	}
 
 	bool do_is_equal(
@@ -38,7 +39,8 @@ class managed_resource_type : public std::pmr::memory_resource {
 class device_resource_type : public std::pmr::memory_resource {
 	void* do_allocate(std::size_t bytes,
 	                  [[maybe_unused]] std::size_t alignment) override {
-		auto region = cuda::memory::device::detail::allocate(bytes);
+		auto device = cuda::device::current::get();
+		auto region = cuda::memory::device::allocate(device, bytes);
 		return region.get();
 	}
 

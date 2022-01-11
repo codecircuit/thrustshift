@@ -17,14 +17,18 @@ class managed_allocator {
 	}
 
 	value_type* allocate(std::size_t n) {
-		auto mem = cuda::memory::managed::detail::allocate(n * sizeof(T)).get();
+
+		auto device = cuda::device::current::get();
+		const size_t bytes = n * sizeof(T);
+		auto region = cuda::memory::managed::allocate(device, bytes);
+		auto mem = region.get();
 		if (mem == nullptr)
 			throw std::bad_alloc{};
 		return static_cast<value_type*>(mem);
 	}
 
 	void deallocate(value_type* p, std::size_t) noexcept {
-		cuda::memory::managed::detail::free(p);
+		cuda::memory::managed::free(p);
 	}
 };
 
