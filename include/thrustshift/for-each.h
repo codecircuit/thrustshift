@@ -26,8 +26,8 @@ CUDA_FHD void for_each_impl(Tuple&& t, F&& f, std::index_sequence<I...>) {
 
 template <class TupleT, typename F>
 CUDA_FHD void for_each(TupleT&& t, F&& f) {
-	auto seq = std::make_index_sequence<thrustshift::tuple_size<
-	    typename std::remove_reference<TupleT>::type>::value>{};
+	auto seq = std::make_index_sequence<
+	    thrustshift::tuple_size<typename std::decay<TupleT>::type>::value>{};
 	using std::forward;
 	detail::for_each_impl(forward<TupleT>(t), forward<F>(f), seq);
 }
@@ -46,9 +46,10 @@ CUDA_FHD void for_each_impl(TupleA&& a,
                             TupleB&& b,
                             F&& f,
                             std::index_sequence<I...>) {
-	using std::get;
 	using std::forward;
-	[[maybe_unused]] auto l = {(f(get<I>(forward<TupleA>(a)), get<I>(forward<TupleB>(b))), 0)...};
+	using std::get;
+	[[maybe_unused]] auto l = {
+	    (f(get<I>(forward<TupleA>(a)), get<I>(forward<TupleB>(b))), 0)...};
 }
 
 } // namespace detail

@@ -15,7 +15,10 @@ using namespace thrustshift;
 BOOST_AUTO_TEST_CASE(test_tuple_to_string) {
 
 	std::tuple<float, double, int> tup{1, 2, 3};
+	const std::tuple<float, double, int> ctup{1, 2, 3};
 
 	auto str = tuple::to_string(tup);
+	auto cstr = tuple::to_string(ctup);
+
 	BOOST_TEST(str == "1,2,3");
 }
