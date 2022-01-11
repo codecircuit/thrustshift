@@ -13,6 +13,7 @@ add_library(thrustshift INTERFACE)
 target_include_directories(
   thrustshift
   INTERFACE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
+	"$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
 target_compile_features(thrustshift INTERFACE cxx_std_14)
 
