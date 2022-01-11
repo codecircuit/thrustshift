@@ -25,6 +25,7 @@ add_executable(
   "test-type-traits.cu"
   "test-for-each.cu"
   "test-k-selection.cu"
+  "test-tuple-to-string.cu"
 )
 
 include(CMakeshift/TargetCompileSettings)
