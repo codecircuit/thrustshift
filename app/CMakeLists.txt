@@ -68,6 +68,8 @@ target_link_libraries(
           CUDA::nvToolsExt # because the cuda-api-wrappers do not export the dependency correctly
 )
 
+install(TARGETS bench-k-selection RUNTIME)
+
 ################################################################################
 
 add_executable(bench-bin-values256 "bench-bin-values256.cu")
@@ -86,4 +88,5 @@ target_link_libraries(
           CUDA::nvToolsExt # because the cuda-api-wrappers do not export the dependency correctly
 )
 
+install(TARGETS bench-bin-values256 RUNTIME)
 ################################################################################
