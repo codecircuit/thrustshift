@@ -50,6 +50,11 @@ if(CMAKE_CUDA_COMPILER_ID MATCHES "NVIDIA")
                              $<$<COMPILE_LANGUAGE:CUDA>:BOOST_PP_VARIADICS=1>)
 endif()
 
+#######################################################
+# FOR RELOCATABLE DEVICE CODE AND DYNAMIC PARALELLISM #
+#######################################################
+set_target_properties(test-thrustshift PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+
 target_link_libraries(
   test-thrustshift
   PRIVATE Boost::unit_test_framework Boost::filesystem thrustshift Eigen3::Eigen matrixmarket::matrixmarket

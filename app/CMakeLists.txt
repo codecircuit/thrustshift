@@ -56,6 +56,11 @@ add_executable(bench-k-selection "bench-k-selection.cu")
 
 configure_thrustshift_app_target(bench-k-selection)
 
+#######################################################
+# FOR RELOCATABLE DEVICE CODE AND DYNAMIC PARALELLISM #
+#######################################################
+set_target_properties(bench-k-selection PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+
 target_link_libraries(
   bench-k-selection
   PRIVATE Boost::program_options thrustshift
@@ -68,6 +73,11 @@ target_link_libraries(
 add_executable(bench-bin-values256 "bench-bin-values256.cu")
 
 configure_thrustshift_app_target(bench-bin-values256)
+
+#######################################################
+# FOR RELOCATABLE DEVICE CODE AND DYNAMIC PARALELLISM #
+#######################################################
+set_target_properties(bench-bin-values256 PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 target_link_libraries(
   bench-bin-values256
