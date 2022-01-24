@@ -329,7 +329,7 @@ CUDA_FHD auto operator+(
 	using T = typename detail::
 	    arithmetic_multi_iterator_reference_base<Ref, N, Parent>::value_type;
 	arithmetic_tuple<T, N> result{tup};
-	using parent_t = typename arithmetic_tuple<T, N>::parent_t;
+	using parent_t = typename arithmetic_tuple<T, N>::parent_t::parent_t;
 	// A device lambda here in combination with `std::enable_if_t` results into
 	// an internal compiler error.
 	tuple::for_each(static_cast<parent_t&>(result),
@@ -397,7 +397,7 @@ CUDA_FHD auto operator*(
 	using T = typename detail::
 	    arithmetic_multi_iterator_reference_base<Ref, N, Parent>::value_type;
 	arithmetic_tuple<T, N> result{tup};
-	using parent_t = typename arithmetic_tuple<T, N>::parent_t;
+	using parent_t = typename arithmetic_tuple<T, N>::parent_t::parent_t;
 	// A device lambda here in combination with `std::enable_if_t` results into
 	// an internal compiler error.
 	tuple::for_each(static_cast<parent_t&>(result),

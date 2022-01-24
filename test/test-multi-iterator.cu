@@ -81,15 +81,18 @@ BOOST_AUTO_TEST_CASE(test_arithmetic_multi_iterator) {
 
 	auto add_result2 = add_result + add_result;
 
-	BOOST_TEST(thrust::get<0>(add_result2) == (2*6.3), tt::tolerance(0.0001));
-	BOOST_TEST(thrust::get<1>(add_result2) == (2*6.6), tt::tolerance(0.0001));
-	BOOST_TEST(thrust::get<2>(add_result2) == (2*6.9), tt::tolerance(0.0001));
+	BOOST_TEST(thrust::get<0>(add_result2) == (2 * 6.3), tt::tolerance(0.0001));
+	BOOST_TEST(thrust::get<1>(add_result2) == (2 * 6.6), tt::tolerance(0.0001));
+	BOOST_TEST(thrust::get<2>(add_result2) == (2 * 6.9), tt::tolerance(0.0001));
 
 	auto other_result = add_result + 7;
 
-	BOOST_TEST(thrust::get<0>(other_result) == (6.3+7), tt::tolerance(0.0001));
-	BOOST_TEST(thrust::get<1>(other_result) == (6.6+7), tt::tolerance(0.0001));
-	BOOST_TEST(thrust::get<2>(other_result) == (6.9+7), tt::tolerance(0.0001));
+	BOOST_TEST(thrust::get<0>(other_result) == (6.3 + 7),
+	           tt::tolerance(0.0001));
+	BOOST_TEST(thrust::get<1>(other_result) == (6.6 + 7),
+	           tt::tolerance(0.0001));
+	BOOST_TEST(thrust::get<2>(other_result) == (6.9 + 7),
+	           tt::tolerance(0.0001));
 
 	BOOST_TEST(v[0] == 1.1);
 	BOOST_TEST(v[10] == 1.2);
@@ -112,4 +115,7 @@ BOOST_AUTO_TEST_CASE(test_arithmetic_multi_iterator) {
 	BOOST_TEST(arr[1] == v[17]);
 	BOOST_TEST(arr[2] == v[27]);
 
+	auto prev = thrust::get<0>(mi[5]);
+	mi[3] = 5 * mi[5];
+	BOOST_TEST(prev * 5 == thrust::get<0>(mi[3]));
 }
