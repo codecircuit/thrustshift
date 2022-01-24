@@ -8,6 +8,9 @@ CUDA library about what I consider useful and generic functions.
 * [gsl-lite](https://github.com/gsl-lite/gsl-lite), an implementation of the [C++ Core Guidelines Support Library](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#S-gsl)
 * [cuda-api-wrappers](https://github.com/eyalroz/cuda-api-wrappers)
 * [Eigen3](https://gitlab.com/libeigen/eigen)
+* [cuda-kat](https://github.com/eyalroz/cuda-kat) for a device compatible array implementation
+* [makeshift](https://github.com/mbeutel/makeshift)
+* [sysmakeshift](https://github.com/mbeutel/sysmakeshift)
 
 ## Design Concept
 
