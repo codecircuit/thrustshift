@@ -87,7 +87,7 @@ take build/release # zsh shell
 ```
 4. Configure with CMake
 
-In the following the library is built for CUDA architectures `sm_61` and `sm_75`.
+In the following the library is built for CUDA architecture `sm_75`.
 Please adjust accordingly for your GPU architecture.
 
 ```bash
@@ -95,7 +95,10 @@ cmake ... -DCMAKE_BUILD_TYPE=Release
   -DCMakeshift_DIR=$PATH_TO_CMAKESHIFT_BUILD_DIR
   -Dgsl-lite_DIR=$PATH_TO_GSL_LITE_BUILD_DIR
   -Dcuda-api-wrappers_DIR=$PATH_TO_CUDA_API_WRAPPERS_BUILD_DIR
-  -DCMAKE_CUDA_ARCHITECTURES="61;75"
+  -Dsysmakeshift_DIR=$PATH_TO_SYSMAKESHIFT_BUILD_DIR
+  -Dmakeshift_DIR=$PATH_TO_MAKESHIFT_BUILD_DIR
+  -Dcuda-kat_DIR=$PATH_TO_CUDA_KAT_DIR
+  -DCMAKE_CUDA_ARCHITECTURES="75"
 ```
 
 Alternatively to declaring the paths to the dependencies explicitly, you can install them and
