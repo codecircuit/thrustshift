@@ -169,6 +169,39 @@ void select_if(cuda::stream_t& stream,
 	exec();
 }
 
+template <class ValuesIt,
+          class SelectedIt,
+          class NumSelectedPtr,
+          class SelectOp,
+          class MemoryResource>
+void select_if(cuda::stream_t& stream,
+               ValuesIt values,
+               SelectedIt selected,
+               NumSelectedPtr num_selected_ptr,
+               size_t N,
+               SelectOp select_op,
+               MemoryResource& delayed_memory_resource) {
+
+	size_t tmp_bytes_size = 0;
+	void* tmp_ptr = nullptr;
+
+	auto exec = [&] {
+		cuda::throw_if_error(cub::DeviceSelect::If(tmp_ptr,
+		                                           tmp_bytes_size,
+		                                           values,
+		                                           selected,
+		                                           num_selected_ptr,
+		                                           N,
+		                                           select_op,
+		                                           stream.id()));
+	};
+	exec();
+	auto tmp =
+	    make_not_a_vector<uint8_t>(tmp_bytes_size, delayed_memory_resource);
+	tmp_ptr = tmp.to_span().data();
+	exec();
+}
+
 /*! \brief Select values based on predicate with their index.
  *
  *  \param values Range of length N with value_type `T`
