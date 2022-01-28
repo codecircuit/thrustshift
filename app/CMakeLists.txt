@@ -8,6 +8,9 @@ find_package(Boost REQUIRED COMPONENTS program_options filesystem)
 option(BUILD_APPS_WITH_FAST_MATH
        "use --fast_math or -ffast-math to compile apps (nvcc/clang)" ON
 )
+option(INSTALL_APPS
+  "install apps (needed for the spack package)" OFF
+)
 
 ################################################################################
 
@@ -68,7 +71,9 @@ target_link_libraries(
           CUDA::nvToolsExt # because the cuda-api-wrappers do not export the dependency correctly
 )
 
-install(TARGETS bench-k-selection RUNTIME)
+if(INSTALL_APPS)
+  install(TARGETS bench-k-selection RUNTIME)
+endif()
 
 ################################################################################
 
@@ -88,5 +93,7 @@ target_link_libraries(
           CUDA::nvToolsExt # because the cuda-api-wrappers do not export the dependency correctly
 )
 
-install(TARGETS bench-bin-values256 RUNTIME)
+if(INSTALL_APPS)
+  install(TARGETS bench-bin-values256 RUNTIME)
+endif()
 ################################################################################

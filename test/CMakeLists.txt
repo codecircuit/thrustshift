@@ -5,6 +5,10 @@ find_package(Boost REQUIRED COMPONENTS unit_test_framework filesystem)
 find_package(Eigen3 REQUIRED)
 find_package(matrixmarket REQUIRED)
 
+option(INSTALL_TEST
+  "install test (needed for the spack package)" OFF
+)
+
 add_executable(
   test-thrustshift
   "main.cpp"
@@ -63,3 +67,7 @@ target_link_libraries(
 target_compile_definitions(test-thrustshift PRIVATE gsl_CONFIG_CONTRACT_CHECKING_AUDIT)
 
 add_test(NAME "test-thrustshift" COMMAND test-thrustshift)
+
+if(INSTALL_TEST) 
+  install(TARGETS test-thrustshift RUNTIME)
+endif()
