@@ -9,7 +9,7 @@ option(BUILD_APPS_WITH_FAST_MATH
        "use --fast_math or -ffast-math to compile apps (nvcc/clang)" ON
 )
 option(INSTALL_APPS
-  "install apps (needed for the spack package)" OFF
+  "install apps" OFF
 )
 
 ################################################################################
