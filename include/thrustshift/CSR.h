@@ -31,7 +31,11 @@ class CSR {
 	}
 
    public:
-	CSR() : row_ptrs_(1, 0, &pmr::default_resource), num_cols_(0) {
+	CSR()
+	    : values_(0, &pmr::default_resource),
+	      col_indices_(0, &pmr::default_resource),
+	      row_ptrs_(1, 0, &pmr::default_resource),
+	      num_cols_(0) {
 	}
 
 	template <class DataRange,

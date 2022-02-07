@@ -35,7 +35,12 @@ class COO {
 	using value_type = DataType;
 	using index_type = IndexType;
 
-	COO() : num_cols_(0), num_rows_(0) {
+	COO()
+	    : values_(0, &pmr::default_resource),
+	      row_indices_(0, &pmr::default_resource),
+	      col_indices_(0, &pmr::default_resource),
+	      num_cols_(0),
+	      num_rows_(0) {
 	}
 
 	template <class MemoryResource>
