@@ -33,11 +33,12 @@ namespace implicit_unroll {
  *  Only full warps are allowed to enter this function.
  *
  *  \param x the value for each thread
- *  \param result result range.
- *  \param result_pos pointer to an integer holding the ID of the first
- *      written result element by this function (usually initialized
- *      with zero). This counter must be shared among all threads, which
- *      enter this function because it is incremented and read atomically.
+ *  \param selected_values result range.
+ *  \param selected_values_pos to an integer holding the ID of the first
+ *      written result element by this function (usually initialized with
+ *      zero). This counter is read and written atomically by the first lane of
+ *      the warp. Usually this counter is shared among threads because it is
+ *      incremented and read atomically.
  *  \param lane_id ID of the thread within the warp.
  *  \param valid_write some threads might be disabled with this flag (useful for
  *      handling range borders).
