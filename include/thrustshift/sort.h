@@ -190,7 +190,7 @@ void sort_batched_descending(cuda::stream_t& stream,
 		    tit + 1,
 		    0, // default value by CUB
 		    sizeof(KeyT) * 8, // default value by CUB
-		    stream.id()));
+		    stream.handle()));
 	};
 	exec();
 	auto tmp =
@@ -264,7 +264,7 @@ void sort_batched_abs(cuda::stream_t& stream,
 		    tit + 1,
 		    0, // first key bit for comparison
 		    sizeof(KeyT) * 8 - 1, // highest bit is used to save sign
-		    stream.id()));
+		    stream.handle()));
 	};
 	exec();
 	auto tmp =

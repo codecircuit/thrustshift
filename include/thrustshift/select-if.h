@@ -161,7 +161,7 @@ void select_if(cuda::stream_t& stream,
 		                                           num_selected_ptr,
 		                                           N,
 		                                           select_op,
-		                                           stream.id()));
+		                                           stream.handle()));
 	};
 	exec();
 	auto tmp =
@@ -194,7 +194,7 @@ void select_if(cuda::stream_t& stream,
 		                                           num_selected_ptr,
 		                                           N,
 		                                           select_op,
-		                                           stream.id()));
+		                                           stream.handle()));
 	};
 	exec();
 	auto tmp =
@@ -245,7 +245,7 @@ void select_if_with_index(cuda::stream_t& stream,
 		                                           num_selected_ptr,
 		                                           N,
 		                                           select_op,
-		                                           stream.id()));
+		                                           stream.handle()));
 	};
 	exec();
 	auto tmp =
@@ -290,7 +290,7 @@ void select_if_with_index(cuda::stream_t& stream,
 		                                           num_selected_ptr,
 		                                           N,
 		                                           select_op,
-		                                           stream.id()));
+		                                           stream.handle()));
 	};
 	exec();
 	auto tmp =

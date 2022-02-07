@@ -2198,10 +2198,11 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 	k_s[0] = k;
 
 	auto c = cuda::make_launch_config(grid_dim, block_dim);
+	c.block_cooperation = true;
+
 	const int N = values.size();
 
 	cuda::enqueue_launch(
-	    cuda::thread_blocks_may_cooperate,
 	    kernel::
 	        k_select_radix<T, unsigned, block_dim, grid_dim, num_sh_histograms>,
 	    stream,
@@ -2261,10 +2262,10 @@ void select_k_largest_values_abs2(cuda::stream_t& stream,
 	k_s[0] = k;
 
 	auto c = cuda::make_launch_config(grid_dim, block_dim);
+	c.block_cooperation = true;
 	const int N = values.size();
 
-	cuda::enqueue_launch(cuda::thread_blocks_may_cooperate,
-	                     kernel::k_select_radix2<T,
+	cuda::enqueue_launch(kernel::k_select_radix2<T,
 	                                             unsigned,
 	                                             block_dim,
 	                                             grid_dim,
