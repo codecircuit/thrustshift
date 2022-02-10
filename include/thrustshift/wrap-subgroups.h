@@ -127,7 +127,7 @@ void wrap_subgroups(cuda::stream_t& stream,
 		                                           group_ptrs_size,
 		                                           group_ptrs.size(),
 		                                           f,
-		                                           stream.id()));
+		                                           stream.handle()));
 	};
 	// set temporary memory size only
 	enqueue_select_if();

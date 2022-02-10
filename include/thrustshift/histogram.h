@@ -37,7 +37,7 @@ void bin_values_into_histogram(cuda::stream_t& stream,
 		                                                         lower_level,
 		                                                         upper_level,
 		                                                         num_samples,
-		                                                         stream.id()));
+		                                                         stream.handle()));
 	};
 	exec();
 	auto tmp =

@@ -36,7 +36,7 @@ void inclusive_scan(cuda::stream_t& stream,
 		                                                    values_out.data(),
 		                                                    scan_op,
 		                                                    N,
-		                                                    stream.id()));
+		                                                    stream.handle()));
 	};
 	exec();
 	auto tmp =

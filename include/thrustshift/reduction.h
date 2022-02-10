@@ -33,7 +33,7 @@ void reduce(cuda::stream_t& stream,
 		                              gsl_lite::narrow<int>(values.size()),
 		                              reduction_functor,
 		                              initial_value,
-		                              stream.id()));
+		                              stream.handle()));
 	};
 	exec();
 	auto tmp =
@@ -71,7 +71,7 @@ void segmented_reduce(cuda::stream_t& stream,
 		    segment_ptrs.data() + 1,
 		    reduction_functor,
 		    initial_value,
-		    stream.id()));
+		    stream.handle()));
 	};
 	exec();
 	auto tmp =
@@ -108,7 +108,7 @@ void segmented_reduce(cuda::stream_t& stream,
 		                                       segment_ptrs + 1,
 		                                       reduction_functor,
 		                                       initial_value,
-		                                       stream.id()));
+		                                       stream.handle()));
 	};
 	exec();
 	auto tmp =
