@@ -50,6 +50,9 @@ function(configure_thrustshift_app_target targetname)
   target_compile_definitions(
     ${targetname} PRIVATE $<$<CONFIG:Debug>:gsl_CONFIG_CONTRACT_CHECKING_AUDIT>
   )
+  target_compile_definitions(
+    ${targetname} PRIVATE $<$<CONFIG:Release>:gsl_CONFIG_DEVICE_CONTRACT_CHECKING_OFF>
+  )
 
 endfunction()
 
