@@ -520,63 +520,332 @@ thrustshift::COO<DataType, IndexType> transform(
 	gsl_Expects(b.num_rows() == num_rows);
 	gsl_Expects(b.num_cols() == num_cols);
 
-	auto [tmp0, values] =
-	    make_not_a_vector_and_span<DataType>(nnz_a + nnz_b, memory_resource);
-	auto [tmp1, row_indices] =
-	    make_not_a_vector_and_span<IndexType>(nnz_a + nnz_b, memory_resource);
-	auto [tmp2, col_indices] =
-	    make_not_a_vector_and_span<IndexType>(nnz_a + nnz_b, memory_resource);
+	if constexpr (sizeof(IndexType) == 4) {
+		using KeyT = uint64_t;
+		auto [tmp0, values] = make_not_a_vector_and_span<DataType>(
+		    nnz_a + nnz_b, memory_resource);
+		auto [tmp1, row_and_col_indices] =
+		    make_not_a_vector_and_span<KeyT>(nnz_a + nnz_b, memory_resource);
+		auto row_and_col_indices_ptr = row_and_col_indices.data();
 
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
+		auto row_indices_a_ptr = a.row_indices().data();
+		auto col_indices_a_ptr = a.col_indices().data();
+		auto row_indices_b_ptr = b.row_indices().data();
+		auto col_indices_b_ptr = b.col_indices().data();
 
-	async::transform(stream, a.values(), values.first(nnz_a), op_a);
-	async::copy(stream, a.row_indices(), row_indices.first(nnz_a));
-	async::copy(stream, a.col_indices(), col_indices.first(nnz_a));
+		auto device = cuda::device::current::get();
+		auto stream = device.default_stream();
 
-	async::transform(stream, b.values(), values.subspan(nnz_a), op_b);
-	async::copy(stream, b.row_indices(), row_indices.subspan(nnz_a));
-	async::copy(stream, b.col_indices(), col_indices.subspan(nnz_a));
+		async::transform(stream, a.values(), values.first(nnz_a), op_a);
+		auto cit = thrust::make_counting_iterator(IndexType(0));
+		//
+		// Pack
+		//
+		thrust::for_each(thrust::cuda::par.on(stream.handle()),
+		                 cit,
+		                 cit + nnz_a,
+		                 [row_and_col_indices_ptr,
+		                  row_indices_a_ptr,
+		                  col_indices_a_ptr] __device__(IndexType i) {
+			                 const uint64_t fst = uint64_t(row_indices_a_ptr[i])
+			                                      << 32;
+			                 const uint64_t snd = col_indices_a_ptr[i];
+			                 const uint64_t k = fst + snd;
+			                 row_and_col_indices_ptr[i] = k;
+		                 });
+		thrust::for_each(thrust::cuda::par.on(stream.handle()),
+		                 cit,
+		                 cit + nnz_b,
+		                 [row_and_col_indices_ptr,
+		                  row_indices_b_ptr,
+		                  col_indices_b_ptr,
+		                  nnz_a] __device__(IndexType i) {
+			                 const uint64_t fst = uint64_t(row_indices_b_ptr[i])
+			                                      << 32;
+			                 const uint64_t snd = col_indices_b_ptr[i];
+			                 const uint64_t k = fst + snd;
+			                 row_and_col_indices_ptr[i + nnz_a] = k;
+		                 });
 
-	using KeyT = thrust::tuple<IndexType, IndexType>;
-	auto keys_begin = thrust::make_zip_iterator(
-	    thrust::make_tuple(row_indices.begin(), col_indices.begin()));
-	auto keys_end = keys_begin + nnz_a + nnz_b;
+		async::transform(stream, b.values(), values.subspan(nnz_a), op_b);
 
-	std::pmr::polymorphic_allocator<KeyT> alloc(&memory_resource);
-	thrust::sort_by_key(
-	    thrust::cuda::par(alloc), keys_begin, keys_end, values.begin());
+		auto keys_begin = row_and_col_indices.data();
+		auto keys_end = keys_begin + nnz_a + nnz_b;
 
-	const std::size_t nnz_result =
-	    thrust::inner_product(thrust::cuda::par(alloc),
-	                          keys_begin,
-	                          keys_end - 1,
-	                          keys_begin + 1,
-	                          std::size_t(0),
-	                          thrust::plus<std::size_t>(),
-	                          thrust::not_equal_to<KeyT>()) +
-	    std::size_t(1);
+		std::pmr::polymorphic_allocator<KeyT> alloc(&memory_resource);
+		thrust::sort_by_key(
+		    thrust::cuda::par(alloc), keys_begin, keys_end, values.begin());
 
-	// ```cpp
-	//   auto memory_resource = ...;
-	//   auto res = transform(..., memory_resource);
-	//
-	// ```
-	// should work fine because the dtor of `res` is called before the dtor of `memory_resource`
-	COO<DataType, IndexType> result(
-	    nnz_result, num_rows, num_cols, memory_resource);
-	auto keys_result_begin = thrust::make_zip_iterator(thrust::make_tuple(
-	    result.row_indices().begin(), result.col_indices().begin()));
-	thrust::reduce_by_key(thrust::cuda::par(alloc),
-	                      keys_begin,
-	                      keys_end,
-	                      values.begin(),
-	                      keys_result_begin,
-	                      result.values().begin(),
-	                      thrust::equal_to<KeyT>(),
-	                      op);
-	result.set_storage_order(storage_order_t::row_major);
-	return result;
+		const std::size_t nnz_result =
+		    thrust::inner_product(thrust::cuda::par(alloc),
+		                          keys_begin,
+		                          keys_end - 1,
+		                          keys_begin + 1,
+		                          std::size_t(0),
+		                          thrust::plus<std::size_t>(),
+		                          thrust::not_equal_to<KeyT>()) +
+		    std::size_t(1);
+
+		// ```cpp
+		//   auto memory_resource = ...;
+		//   auto res = transform(..., memory_resource);
+		//
+		// ```
+		// should work fine because the dtor of `res` is called before the dtor of `memory_resource`
+		COO<DataType, IndexType> result(
+		    nnz_result, num_rows, num_cols, memory_resource);
+		auto [tmp2, key_result] =
+		    thrustshift::make_not_a_vector_and_span<uint64_t>(nnz_result,
+		                                                      memory_resource);
+		auto keys_result_begin = key_result.data();
+		thrust::reduce_by_key(thrust::cuda::par(alloc),
+		                      keys_begin,
+		                      keys_end,
+		                      values.begin(),
+		                      keys_result_begin,
+		                      result.values().begin(),
+		                      thrust::equal_to<KeyT>(),
+		                      op);
+		//
+		// Unpack
+		//
+		auto result_row_indices_ptr = result.row_indices().data();
+		auto result_col_indices_ptr = result.col_indices().data();
+		thrust::for_each(thrust::cuda::par.on(stream.handle()),
+		                 cit,
+		                 cit + nnz_result,
+		                 [keys_result_begin,
+		                  result_row_indices_ptr,
+		                  result_col_indices_ptr] __device__(IndexType i) {
+			                 const uint64_t key = keys_result_begin[i];
+			                 const uint64_t fst = key >> 32;
+			                 const uint64_t snd = (key << 32) >> 32;
+			                 result_row_indices_ptr[i] = fst;
+			                 result_col_indices_ptr[i] = snd;
+		                 });
+		result.set_storage_order(storage_order_t::row_major);
+		return result;
+	}
+	else {
+		auto [tmp0, values] = make_not_a_vector_and_span<DataType>(
+		    nnz_a + nnz_b, memory_resource);
+		auto [tmp1, row_indices] = make_not_a_vector_and_span<IndexType>(
+		    nnz_a + nnz_b, memory_resource);
+		auto [tmp2, col_indices] = make_not_a_vector_and_span<IndexType>(
+		    nnz_a + nnz_b, memory_resource);
+
+		auto device = cuda::device::current::get();
+		auto stream = device.default_stream();
+
+		async::transform(stream, a.values(), values.first(nnz_a), op_a);
+		async::copy(stream, a.row_indices(), row_indices.first(nnz_a));
+		async::copy(stream, a.col_indices(), col_indices.first(nnz_a));
+
+		async::transform(stream, b.values(), values.subspan(nnz_a), op_b);
+		async::copy(stream, b.row_indices(), row_indices.subspan(nnz_a));
+		async::copy(stream, b.col_indices(), col_indices.subspan(nnz_a));
+
+		using KeyT = thrust::tuple<IndexType, IndexType>;
+		auto keys_begin = thrust::make_zip_iterator(
+		    thrust::make_tuple(row_indices.begin(), col_indices.begin()));
+		auto keys_end = keys_begin + nnz_a + nnz_b;
+
+		std::pmr::polymorphic_allocator<KeyT> alloc(&memory_resource);
+		thrust::sort_by_key(
+		    thrust::cuda::par(alloc), keys_begin, keys_end, values.begin());
+
+		const std::size_t nnz_result =
+		    thrust::inner_product(thrust::cuda::par(alloc),
+		                          keys_begin,
+		                          keys_end - 1,
+		                          keys_begin + 1,
+		                          std::size_t(0),
+		                          thrust::plus<std::size_t>(),
+		                          thrust::not_equal_to<KeyT>()) +
+		    std::size_t(1);
+
+		// ```cpp
+		//   auto memory_resource = ...;
+		//   auto res = transform(..., memory_resource);
+		//
+		// ```
+		// should work fine because the dtor of `res` is called before the dtor of `memory_resource`
+		COO<DataType, IndexType> result(
+		    nnz_result, num_rows, num_cols, memory_resource);
+		auto keys_result_begin = thrust::make_zip_iterator(thrust::make_tuple(
+		    result.row_indices().begin(), result.col_indices().begin()));
+		thrust::reduce_by_key(thrust::cuda::par(alloc),
+		                      keys_begin,
+		                      keys_end,
+		                      values.begin(),
+		                      keys_result_begin,
+		                      result.values().begin(),
+		                      thrust::equal_to<KeyT>(),
+		                      op);
+		result.set_storage_order(storage_order_t::row_major);
+		return result;
+	}
+}
+
+template <typename DataType,
+          typename IndexType,
+          class BinaryOperator,
+          class UnaryOperatorA0,
+          class UnaryOperatorA1,
+          class UnaryOperatorB0,
+          class UnaryOperatorB1,
+          class MemoryResource>
+std::tuple<thrustshift::COO<DataType, IndexType>,
+           decltype(thrustshift::make_not_a_vector<DataType>(1,
+                                                             MemoryResource{}))>
+transform2(thrustshift::COO_view<const DataType, const IndexType> a,
+           thrustshift::COO_view<const DataType, const IndexType> b,
+           BinaryOperator&& op,
+           UnaryOperatorA0&& op_a0,
+           UnaryOperatorA1&& op_a1,
+           UnaryOperatorB0&& op_b0,
+           UnaryOperatorB1&& op_b1,
+           MemoryResource& memory_resource) {
+
+	const auto nnz_a = a.values().size();
+	const auto nnz_b = b.values().size();
+	const auto num_rows = a.num_rows();
+	const auto num_cols = b.num_cols();
+	gsl_Expects(b.num_rows() == num_rows);
+	gsl_Expects(b.num_cols() == num_cols);
+
+	if constexpr (sizeof(IndexType) == 4) {
+		using KeyT = uint64_t;
+		auto [tmp0, values0] = make_not_a_vector_and_span<DataType>(
+		    nnz_a + nnz_b, memory_resource);
+		auto [tmp4, values1] = make_not_a_vector_and_span<DataType>(
+		    nnz_a + nnz_b, memory_resource);
+		auto [tmp1, row_and_col_indices] =
+		    make_not_a_vector_and_span<KeyT>(nnz_a + nnz_b, memory_resource);
+		auto row_and_col_indices_ptr = row_and_col_indices.data();
+
+		auto row_indices_a_ptr = a.row_indices().data();
+		auto col_indices_a_ptr = a.col_indices().data();
+		auto row_indices_b_ptr = b.row_indices().data();
+		auto col_indices_b_ptr = b.col_indices().data();
+
+		auto device = cuda::device::current::get();
+		auto stream = device.default_stream();
+
+		async::transform(stream, a.values(), values0.first(nnz_a), op_a0);
+		async::transform(stream, b.values(), values0.subspan(nnz_a), op_b0);
+		async::transform(stream, a.values(), values1.first(nnz_a), op_a1);
+		async::transform(stream, b.values(), values1.subspan(nnz_a), op_b1);
+
+		auto cit = thrust::make_counting_iterator(IndexType(0));
+		//
+		// Pack
+		//
+		thrust::for_each(thrust::cuda::par.on(stream.handle()),
+		                 cit,
+		                 cit + nnz_a,
+		                 [row_and_col_indices_ptr,
+		                  row_indices_a_ptr,
+		                  col_indices_a_ptr] __device__(IndexType i) {
+			                 const uint64_t fst = uint64_t(row_indices_a_ptr[i])
+			                                      << 32;
+			                 const uint64_t snd = col_indices_a_ptr[i];
+			                 const uint64_t k = fst + snd;
+			                 row_and_col_indices_ptr[i] = k;
+		                 });
+		thrust::for_each(thrust::cuda::par.on(stream.handle()),
+		                 cit,
+		                 cit + nnz_b,
+		                 [row_and_col_indices_ptr,
+		                  row_indices_b_ptr,
+		                  col_indices_b_ptr,
+		                  nnz_a] __device__(IndexType i) {
+			                 const uint64_t fst = uint64_t(row_indices_b_ptr[i])
+			                                      << 32;
+			                 const uint64_t snd = col_indices_b_ptr[i];
+			                 const uint64_t k = fst + snd;
+			                 row_and_col_indices_ptr[i + nnz_a] = k;
+		                 });
+
+		auto keys_begin = row_and_col_indices.data();
+		auto keys_end = keys_begin + nnz_a + nnz_b;
+
+		auto zip_value_it = thrust::make_zip_iterator(
+		    thrust::make_tuple(values0.begin(), values1.begin()));
+
+		std::pmr::polymorphic_allocator<KeyT> alloc(&memory_resource);
+		thrust::sort_by_key(thrust::cuda::par(alloc),
+		                    keys_begin,
+		                    keys_end,
+		                    zip_value_it.begin());
+
+		const std::size_t nnz_result =
+		    thrust::inner_product(thrust::cuda::par(alloc),
+		                          keys_begin,
+		                          keys_end - 1,
+		                          keys_begin + 1,
+		                          std::size_t(0),
+		                          thrust::plus<std::size_t>(),
+		                          thrust::not_equal_to<KeyT>()) +
+		    std::size_t(1);
+
+		// ```cpp
+		//   auto memory_resource = ...;
+		//   auto res = transform(..., memory_resource);
+		//
+		// ```
+		// should work fine because the dtor of `res` is called before the dtor of `memory_resource`
+		COO<DataType, IndexType> result(
+		    nnz_result, num_rows, num_cols, memory_resource);
+
+		auto result_values0 = result.values();
+		auto [result_values1_nav, result_values1] =
+		    thrustshift::make_not_a_vector_and_span<DataType>(nnz_result,
+		                                                      memory_resource);
+		auto [tmp2, key_result] =
+		    thrustshift::make_not_a_vector_and_span<uint64_t>(nnz_result,
+		                                                      memory_resource);
+		auto keys_result_begin = key_result.data();
+
+		auto zip_result_it = thrust::make_zip_iterator(
+		    thrust::make_tuple(result_values0.data(), result_values1.data()));
+
+		auto opp = [op] __device__(
+		               const thrust::tuple<DataType, DataType>& tup0,
+		               const thrust::tuple<DataType, DataType>& tup1) {
+			return thrust::make_tuple(
+			    op(thrust::get<0>(tup0), thrust::get<0>(tup1)),
+			    op(thrust::get<1>(tup0), thrust::get<1>(tup1)));
+		};
+		thrust::reduce_by_key(thrust::cuda::par(alloc),
+		                      keys_begin,
+		                      keys_end,
+		                      zip_value_it.begin(),
+		                      keys_result_begin,
+		                      zip_result_it,
+		                      thrust::equal_to<KeyT>(),
+		                      opp);
+		//
+		// Unpack
+		//
+		auto result_row_indices_ptr = result.row_indices().data();
+		auto result_col_indices_ptr = result.col_indices().data();
+		thrust::for_each(thrust::cuda::par.on(stream.handle()),
+		                 cit,
+		                 cit + nnz_result,
+		                 [keys_result_begin,
+		                  result_row_indices_ptr,
+		                  result_col_indices_ptr] __device__(IndexType i) {
+			                 const uint64_t key = keys_result_begin[i];
+			                 const uint64_t fst = key >> 32;
+			                 const uint64_t snd = (key << 32) >> 32;
+			                 result_row_indices_ptr[i] = fst;
+			                 result_col_indices_ptr[i] = snd;
+		                 });
+		result.set_storage_order(storage_order_t::row_major);
+		return std::make_tuple(std::move(result),
+		                       std::move(result_values1_nav));
+	}
 }
 
 template <typename DataType, typename IndexType, class MemoryResource>
@@ -631,6 +900,36 @@ COO<DataType, IndexType> make_pattern_symmetric(
 	    mtx_trans,
 	    [] __device__(DataType x, DataType y) { return x + y; },
 	    identity,
+	    make_zero,
+	    memory_resource);
+}
+
+template <typename DataType, typename IndexType, class MemoryResource>
+std::tuple<thrustshift::COO<DataType, IndexType>,
+           decltype(thrustshift::make_not_a_vector<DataType>(1,
+                                                             MemoryResource{}))>
+symmetrize_abs_and_make_pattern_symmetric(
+    COO_view<const DataType, const IndexType> mtx,
+    MemoryResource& memory_resource) {
+
+	gsl_Expects(!mtx.values().empty());
+
+	COO_view<const DataType, const IndexType> mtx_trans(mtx.values(),
+	                                                    mtx.col_indices(),
+	                                                    mtx.row_indices(),
+	                                                    mtx.num_rows(),
+	                                                    mtx.num_cols());
+	auto identity = [] __device__(DataType x) { return x; };
+	auto make_zero = [] __device__(DataType x) { return DataType(0); };
+	auto abs = [] __device__(DataType x) { return std::abs(x); };
+
+	return transform2(
+	    mtx,
+	    mtx_trans,
+	    [] __device__(DataType x, DataType y) { return x + y; },
+	    abs,
+	    identity,
+	    abs,
 	    make_zero,
 	    memory_resource);
 }
