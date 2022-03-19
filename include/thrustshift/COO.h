@@ -426,6 +426,21 @@ __global__ void get_diagonal(COO_view<const T0, const I> mtx,
 	}
 }
 
+template <typename T0, typename I, typename T1>
+__global__ void fill_diagonal(COO_view<T0, const I> mtx, T1 value) {
+
+	const auto gtid = threadIdx.x + blockIdx.x * blockDim.x;
+	const auto values = mtx.values();
+	const auto nnz = values.size();
+	if (gtid < nnz) {
+		const auto row_id = mtx.row_indices()[gtid];
+		const auto col_id = mtx.col_indices()[gtid];
+		if (row_id == col_id) {
+			values[gtid] = value;
+		}
+	}
+}
+
 } // namespace kernel
 
 namespace async {
@@ -448,6 +463,25 @@ void get_diagonal(cuda::stream_t& stream, COO&& mtx, gsl_lite::span<T> diag) {
 		                     cuda::make_launch_config(grid_dim, block_dim),
 		                     mtx,
 		                     diag);
+	}
+}
+
+template <typename T, class COO>
+void fill_diagonal(cuda::stream_t& stream, COO&& mtx, T value) {
+
+	using I = typename std::remove_reference<COO>::type::index_type;
+	using T0 = typename std::remove_reference<COO>::type::value_type;
+	const auto nnz = mtx.values().size();
+	constexpr cuda::grid::block_dimension_t block_dim = 128;
+	const cuda::grid::dimension_t grid_dim =
+	    ceil_divide(gsl_lite::narrow<cuda::grid::dimension_t>(nnz),
+	                gsl_lite::narrow<cuda::grid::dimension_t>(block_dim));
+	if (nnz != 0) {
+		cuda::enqueue_launch(kernel::fill_diagonal<T0, I, T>,
+		                     stream,
+		                     cuda::make_launch_config(grid_dim, block_dim),
+		                     mtx,
+		                     value);
 	}
 }
 
@@ -555,6 +589,7 @@ COO<DataType, IndexType> symmetrize_abs(
 		    0, mtx.num_rows(), mtx.num_cols(), memory_resource);
 	}
 
+	// transposed view
 	COO_view<const DataType, const IndexType> mtx_trans(mtx.values(),
 	                                                    mtx.col_indices(),
 	                                                    mtx.row_indices(),
