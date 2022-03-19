@@ -199,6 +199,59 @@ void sort_batched_descending(cuda::stream_t& stream,
 	exec();
 }
 
+/*! \brief segmented sort of keys with values.
+ *
+ *  Uses CUB's radix sort.
+ */
+template <class KeyInRange,
+          class KeyOutRange,
+          class ValueInRange,
+          class ValueOutRange,
+          class RowPtrs,
+          class MemoryResource>
+void segmented_sort(cuda::stream_t& stream,
+                    KeyInRange&& keys_in,
+                    KeyOutRange&& keys_out,
+                    ValueInRange&& values_in,
+                    ValueOutRange&& values_out,
+                    RowPtrs&& row_ptrs,
+                    MemoryResource& delayed_memory_resource) {
+
+	const std::size_t N = keys_in.size();
+
+	gsl_Expects(keys_out.size() == N);
+	gsl_Expects(values_in.size() == N);
+	gsl_Expects(values_out.size() == N);
+	gsl_Expects(row_ptrs.size() >= 1);
+
+	size_t tmp_bytes_size = 0;
+	void* tmp_ptr = nullptr;
+
+	using KeyT = typename std::remove_reference<KeyOutRange>::type::value_type;
+
+	auto exec = [&] {
+		cuda::throw_if_error(cub::DeviceSegmentedRadixSort::SortPairs(
+		    tmp_ptr,
+		    tmp_bytes_size,
+		    keys_in.data(),
+		    keys_out.data(),
+		    values_in.data(),
+		    values_out.data(),
+		    gsl_lite::narrow<int>(N),
+		    gsl_lite::narrow<int>(row_ptrs.size()) - 1,
+		    row_ptrs.data(),
+		    row_ptrs.data() + 1,
+		    0, // default value by CUB
+		    sizeof(KeyT) * 8, // default value by CUB
+		    stream.handle()));
+	};
+	exec();
+	auto tmp =
+	    make_not_a_vector<uint8_t>(tmp_bytes_size, delayed_memory_resource);
+	tmp_ptr = tmp.to_span().data();
+	exec();
+}
+
 /*! \brief Batched sort of keys with respect to their absolute values.
  *
  *  Example:
