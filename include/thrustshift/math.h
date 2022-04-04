@@ -1,8 +1,12 @@
 #pragma once
+
 #include <cmath>
-#include <cuda/define_specifiers.hpp>
 #include <exception>
 #include <type_traits>
+
+#include <cuda/define_specifiers.hpp>
+
+#include <gsl-lite/gsl-lite.hpp>
 
 namespace thrustshift {
 
@@ -105,7 +109,7 @@ CUDA_FHD bool operator<=(const AbsView<T>& a, const AbsView<T>& b) {
  * auto [s, c] = thrustshift::sincos(x);
  * ```
  */
-template<typename T>
+template <typename T>
 CUDA_FHD std::tuple<T, T> sincos(T x) {
 	T sin_result, cos_result;
 #ifdef __CUDA_ARCH__
