@@ -74,6 +74,27 @@ class host_resource_type : public std::pmr::memory_resource {
 	}
 };
 
+class pinned_host_resource_type : public std::pmr::memory_resource {
+	void* do_allocate(std::size_t bytes,
+	                  [[maybe_unused]] std::size_t alignment) override {
+		void* ptr = nullptr;
+		cuda::throw_if_error(cudaMallocHost(&ptr, bytes),
+		                     "failed allocating pinned host memory");
+		return ptr;
+	}
+
+	void do_deallocate(void* p,
+	                   [[maybe_unused]] std::size_t bytes,
+	                   [[maybe_unused]] std::size_t alignment) override {
+		cuda::throw_if_error(cudaFreeHost(p), "failed cudaFreeHost");
+	}
+
+	bool do_is_equal(
+	    const std::pmr::memory_resource& other) const noexcept override {
+		return this == &other;
+	}
+};
+
 namespace detail {
 
 struct page_id_type {
