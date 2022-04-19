@@ -15,7 +15,7 @@ __global__ void scatter(gsl_lite::span<const SrcT> src,
                         gsl_lite::span<DstT> dst) {
 
 	const auto gtid = threadIdx.x + blockIdx.x * blockDim.x;
-	if (gtid < src.size()) {
+	if (gtid < map.size()) {
 		dst[map[gtid]] = src[gtid];
 	}
 }
@@ -30,7 +30,6 @@ void scatter(cuda::stream_t& stream,
              MapRange&& map,
              DstRange&& dst) {
 
-	gsl_Expects(src.size() == dst.size());
 	gsl_Expects(src.size() == map.size());
 	gsl_Expects(src.data() != dst.data());
 

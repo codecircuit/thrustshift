@@ -10,10 +10,12 @@ namespace thrustshift {
 namespace kernel {
 
 template <typename MapT, typename SrcT, typename DstT>
-__global__ void gather(gsl_lite::span<const MapT> map, gsl_lite::span<const SrcT> src, gsl_lite::span<DstT> dst) {
+__global__ void gather(gsl_lite::span<const MapT> map,
+                       gsl_lite::span<const SrcT> src,
+                       gsl_lite::span<DstT> dst) {
 
 	const auto gtid = threadIdx.x + blockIdx.x * blockDim.x;
-	if (gtid < src.size()) {
+	if (gtid < map.size()) {
 		dst[gtid] = src[map[gtid]];
 	}
 }
@@ -23,9 +25,12 @@ __global__ void gather(gsl_lite::span<const MapT> map, gsl_lite::span<const SrcT
 namespace async {
 
 template <class MapRange, class SrcRange, class DstRange>
-void gather(cuda::stream_t& stream, MapRange&& map, SrcRange&& src, DstRange&& dst) {
-	gsl_Expects(src.size() == dst.size());
-	gsl_Expects(src.size() == map.size());
+void gather(cuda::stream_t& stream,
+            MapRange&& map,
+            SrcRange&& src,
+            DstRange&& dst) {
+
+	gsl_Expects(dst.size() == map.size());
 	gsl_Expects(src.data() != dst.data());
 
 	if (src.empty()) {
