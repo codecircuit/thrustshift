@@ -8,6 +8,7 @@
 #include <thrust/sort.h>
 #include <cuda/define_specifiers.hpp>
 
+#include <thrustshift/equal.h>
 #include <thrustshift/memory-resource.h>
 
 namespace thrustshift {
@@ -209,10 +210,9 @@ bool operator==(const CSR<DataType, IndexType>& a,
                 const CSR<DataType, IndexType>& b) {
 	return equal(a.values(), b.values()) &&
 	       equal(a.col_indices(), b.col_indices()) &&
-	       equal(a.row_ptrs(), b.row_ptrs()) &&
-	       a.num_rows() == b.num_rows() && a.num_cols() == b.num_cols();
+	       equal(a.row_ptrs(), b.row_ptrs()) && a.num_rows() == b.num_rows() &&
+	       a.num_cols() == b.num_cols();
 }
-
 
 template <typename DataType, typename IndexType>
 class CSR_view {
@@ -237,13 +237,11 @@ class CSR_view {
 	      num_cols_(owner.num_cols()) {
 	}
 
-	template <class DataRange,
-	          class ColIndRange,
-	          class RowPtrsRange>
+	template <class DataRange, class ColIndRange, class RowPtrsRange>
 	CSR_view(DataRange&& values,
-	    ColIndRange&& col_indices,
-	    RowPtrsRange&& row_ptrs,
-	    size_t num_cols)
+	         ColIndRange&& col_indices,
+	         RowPtrsRange&& row_ptrs,
+	         size_t num_cols)
 	    : values_(values),
 	      col_indices_(col_indices),
 	      row_ptrs_(row_ptrs),
