@@ -210,7 +210,7 @@ void select_if(cuda::stream_t& stream,
  *      by a thrust::tuple<T, int>.
  *  \param select_op select predicate with signature
  *      ```
- *      select_op = [] __device__ (const thrust::tuple<T, int>& tup) { ... };
+ *      select_op = [] __host__ __device__(const thrust::tuple<T, int>& tup) { ... };
  *      ```
  */
 template <class ValuesRange,

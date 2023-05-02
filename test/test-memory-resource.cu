@@ -82,7 +82,7 @@ BOOST_AUTO_TEST_CASE(test_memory_resource_with_thrusts_reduce_by_key) {
 		    keys_out.data(),
 		    values_out.data(),
 		    thrust::equal_to<int>(),
-		    [] __device__(float a, float b) { return a + b; });
+		    [] __host__ __device__(float a, float b) { return a + b; });
 	}
 	touch_all_memory_resource_pages(memory_resource);
 }

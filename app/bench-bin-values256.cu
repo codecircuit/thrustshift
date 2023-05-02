@@ -106,8 +106,8 @@ int main(int argc, const char* argv[]) {
 	    delayed_memory_resource;
 	thrustshift::managed_vector<int> histogram(256);
 
-	auto unary_functor = [] __device__(T x) { return abs(x); };
-	auto bin_index_transform = [] __device__(int i) { return i; };
+	auto unary_functor = [] __host__ __device__(T x) { return abs(x); };
+	auto bin_index_transform = [] __host__ __device__(int i) { return i; };
 
 	auto exec = [&] {
 		constexpr std::array<uint64_t, 4> prefixes{0, 75, 19224, 4921493};
@@ -166,7 +166,8 @@ int main(int argc, const char* argv[]) {
 				}
 
 				auto sample_iterator = thrust::make_transform_iterator(
-				    values.data(), [prefix, bit_offset] __device__(const T& x) {
+				    values.data(),
+				    [prefix, bit_offset] __host__ __device__(const T& x) {
 					    using std::abs;
 					    const T abs_x = abs(x);
 					    const I k = *reinterpret_cast<I*>((void*) (&abs_x));

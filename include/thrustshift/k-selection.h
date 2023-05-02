@@ -445,7 +445,7 @@ struct k_largest_values_abs_block {
 		auto cit = thrust::make_counting_iterator(0);
 		auto it = thrust::make_zip_iterator(thrust::make_tuple(values, cit));
 
-		auto select_op = [prefix, bit_offset] __device__(
+		auto select_op = [prefix, bit_offset] __host__ __device__(
 		                     const thrust::tuple<T, int>& tup) {
 			using std::abs;
 			auto x = abs(thrust::get<0>(tup));
@@ -1685,12 +1685,12 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix(
     int k,
     MemoryResource& delayed_memory_resource) {
 
-	auto unary_functor = [] __device__(T x) {
+	auto unary_functor = [] __host__ __device__(T x) {
 		using std::abs;
 		return abs(x);
 	};
 	using IH = int;
-	auto bin_index_transform = [] __device__(IH i) { return i; };
+	auto bin_index_transform = [] __host__ __device__(IH i) { return i; };
 
 	constexpr int histogram_length = 256;
 	auto tmp = make_not_a_vector<IH>(histogram_length, delayed_memory_resource);
@@ -1750,12 +1750,12 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic(
     int k,
     MemoryResource& delayed_memory_resource) {
 
-	auto unary_functor = [] __device__(T x) {
+	auto unary_functor = [] __host__ __device__(T x) {
 		using std::abs;
 		return abs(x);
 	};
 	using IH = int;
-	auto bin_index_transform = [] __device__(IH i) { return i; };
+	auto bin_index_transform = [] __host__ __device__(IH i) { return i; };
 
 	constexpr int histogram_length = 256;
 	auto tmp = make_not_a_vector<IH>(histogram_length, delayed_memory_resource);
@@ -1854,14 +1854,14 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic_devicehisto(
     int k,
     MemoryResource& delayed_memory_resource) {
 
-	auto unary_functor = [] __device__(T x) {
+	auto unary_functor = [] __host__ __device__(T x) {
 		using std::abs;
 		return abs(x);
 	};
 	using IH = int;
 
 	constexpr int histogram_length = 256;
-	auto bin_index_transform = [] __device__(IH i) {
+	auto bin_index_transform = [] __host__ __device__(IH i) {
 		return histogram_length - i - 1;
 	};
 
@@ -1951,14 +1951,14 @@ void k_largest_values_abs_radix_atomic_devicehisto_with_ptr(
     int k,
     MemoryResource& delayed_memory_resource) {
 
-	auto unary_functor = [] __device__(T x) {
+	auto unary_functor = [] __host__ __device__(T x) {
 		using std::abs;
 		return abs(x);
 	};
 	using IH = int;
 
 	constexpr int histogram_length = 256;
-	auto bin_index_transform = [] __device__(IH i) {
+	auto bin_index_transform = [] __host__ __device__(IH i) {
 		return histogram_length - i - 1;
 	};
 
@@ -2030,8 +2030,11 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_with_cub(
 
 	for (int bit_offset = 0; bit_offset < int(sizeof(T) * 8); bit_offset += 8) {
 
+		// __host__ needed only for return type, from CUDA 12 on one could
+		// use cuda::proclaim_return_type instead
 		auto sample_iterator = thrust::make_transform_iterator(
-		    values.data(), [prefix, bit_offset] __device__(const T& x) {
+		    values.data(),
+		    [prefix, bit_offset] __host__ __device__(const T& x) {
 			    using std::abs;
 			    const T abs_x = abs(x);
 			    const I i = *reinterpret_cast<I*>((void*) (&abs_x));
@@ -2080,8 +2083,8 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 	    stream, values, k, delayed_memory_resource);
 	const auto prefix = std::get<0>(tup);
 	const auto bit_offset = std::get<1>(tup);
-	auto select_op = [prefix,
-	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+	auto select_op = [prefix, bit_offset] __host__ __device__(
+	                     const thrust::tuple<T, int>& tup) {
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
@@ -2114,8 +2117,8 @@ void select_k_largest_values_abs_atomic(
 	    stream, values, k, delayed_memory_resource);
 	const auto prefix = std::get<0>(tup);
 	const auto bit_offset = std::get<1>(tup);
-	auto select_op = [prefix,
-	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+	auto select_op = [prefix, bit_offset] __host__ __device__(
+	                     const thrust::tuple<T, int>& tup) {
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
@@ -2149,8 +2152,8 @@ void select_k_largest_values_abs_with_cub(
 	    stream, values, k, delayed_memory_resource);
 	const auto prefix = std::get<0>(tup);
 	const auto bit_offset = std::get<1>(tup);
-	auto select_op = [prefix,
-	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+	auto select_op = [prefix, bit_offset] __host__ __device__(
+	                     const thrust::tuple<T, int>& tup) {
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
@@ -2217,8 +2220,8 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 
 	const auto prefix = prefix_s[0];
 	const auto bit_offset = bit_offset_s[0];
-	auto select_op = [prefix,
-	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+	auto select_op = [prefix, bit_offset] __host__ __device__(
+	                     const thrust::tuple<T, int>& tup) {
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
@@ -2282,8 +2285,8 @@ void select_k_largest_values_abs2(cuda::stream_t& stream,
 
 	const auto prefix = prefix_s[0];
 	const auto bit_offset = bit_offset_s[0];
-	auto select_op = [prefix,
-	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+	auto select_op = [prefix, bit_offset] __host__ __device__(
+	                     const thrust::tuple<T, int>& tup) {
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
@@ -2403,8 +2406,8 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 
 	const auto prefix = prefix_s[0];
 	const auto bit_offset = bit_offset_s[0];
-	auto select_op = [prefix,
-	                  bit_offset] __device__(const thrust::tuple<T, int>& tup) {
+	auto select_op = [prefix, bit_offset] __host__ __device__(
+	                     const thrust::tuple<T, int>& tup) {
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
@@ -2445,7 +2448,7 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 	async::k_largest_values_abs_radix_atomic_devicehisto_with_ptr<T>(
 	    stream, values, prefix_ptr, bit_offset_ptr, k, delayed_memory_resource);
 
-	auto select_op = [prefix_ptr, bit_offset_ptr] __device__(
+	auto select_op = [prefix_ptr, bit_offset_ptr] __host__ __device__(
 	                     const thrust::tuple<T, int>& tup) {
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));

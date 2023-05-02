@@ -166,8 +166,10 @@ void sort_batched_descending(cuda::stream_t& stream,
 	gsl_Expects(values_out.size() == N);
 
 	auto cit = thrust::make_counting_iterator(0);
+	// __host__ needed only for return type, from CUDA 12 on one could
+	// use cuda::proclaim_return_type instead
 	auto tit = thrust::make_transform_iterator(
-	    cit, [batch_len] __device__(int i) { return i * batch_len; });
+	    cit, [batch_len] __host__ __device__(int i) { return i * batch_len; });
 
 	const std::size_t num_batches = N / batch_len;
 
@@ -295,8 +297,10 @@ void sort_batched_abs(cuda::stream_t& stream,
 	using AbsT = AbsView<KeyT>;
 
 	auto cit = thrust::make_counting_iterator(0);
+	// __host__ needed only for return type, from CUDA 12 on one could
+	// use cuda::proclaim_return_type instead
 	auto tit = thrust::make_transform_iterator(
-	    cit, [batch_len] __device__(int i) { return i * batch_len; });
+	    cit, [batch_len] __host__ __device__(int i) { return i * batch_len; });
 
 	const std::size_t num_batches = N / batch_len;
 
