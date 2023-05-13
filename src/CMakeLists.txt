@@ -18,6 +18,9 @@ target_include_directories(
 )
 target_compile_features(thrustshift INTERFACE cxx_std_17)
 
+# For compatibility with CUDA 12 as code uses legacy CUDA Dynamic Parallelism
+target_compile_definitions(thrustshift INTERFACE CUDA_FORCE_CDP1_IF_SUPPORTED)
+
 target_link_libraries(
   thrustshift
   INTERFACE

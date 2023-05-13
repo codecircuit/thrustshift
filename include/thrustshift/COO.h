@@ -546,7 +546,7 @@ thrustshift::COO<DataType, IndexType> transform(
 		                 cit + nnz_a,
 		                 [row_and_col_indices_ptr,
 		                  row_indices_a_ptr,
-		                  col_indices_a_ptr] __device__(IndexType i) {
+		                  col_indices_a_ptr] __host__ __device__(IndexType i) {
 			                 const uint64_t fst = uint64_t(row_indices_a_ptr[i])
 			                                      << 32;
 			                 const uint64_t snd = col_indices_a_ptr[i];
@@ -559,7 +559,7 @@ thrustshift::COO<DataType, IndexType> transform(
 		                 [row_and_col_indices_ptr,
 		                  row_indices_b_ptr,
 		                  col_indices_b_ptr,
-		                  nnz_a] __device__(IndexType i) {
+		                  nnz_a] __host__ __device__(IndexType i) {
 			                 const uint64_t fst = uint64_t(row_indices_b_ptr[i])
 			                                      << 32;
 			                 const uint64_t snd = col_indices_b_ptr[i];
@@ -611,18 +611,19 @@ thrustshift::COO<DataType, IndexType> transform(
 		//
 		auto result_row_indices_ptr = result.row_indices().data();
 		auto result_col_indices_ptr = result.col_indices().data();
-		thrust::for_each(thrust::cuda::par.on(stream.handle()),
-		                 cit,
-		                 cit + nnz_result,
-		                 [keys_result_begin,
-		                  result_row_indices_ptr,
-		                  result_col_indices_ptr] __device__(IndexType i) {
-			                 const uint64_t key = keys_result_begin[i];
-			                 const uint64_t fst = key >> 32;
-			                 const uint64_t snd = (key << 32) >> 32;
-			                 result_row_indices_ptr[i] = fst;
-			                 result_col_indices_ptr[i] = snd;
-		                 });
+		thrust::for_each(
+		    thrust::cuda::par.on(stream.handle()),
+		    cit,
+		    cit + nnz_result,
+		    [keys_result_begin,
+		     result_row_indices_ptr,
+		     result_col_indices_ptr] __host__ __device__(IndexType i) {
+			    const uint64_t key = keys_result_begin[i];
+			    const uint64_t fst = key >> 32;
+			    const uint64_t snd = (key << 32) >> 32;
+			    result_row_indices_ptr[i] = fst;
+			    result_col_indices_ptr[i] = snd;
+		    });
 		result.set_storage_order(storage_order_t::row_major);
 		return result;
 	}
@@ -746,7 +747,7 @@ transform2(thrustshift::COO_view<const DataType, const IndexType> a,
 		                 cit + nnz_a,
 		                 [row_and_col_indices_ptr,
 		                  row_indices_a_ptr,
-		                  col_indices_a_ptr] __device__(IndexType i) {
+		                  col_indices_a_ptr] __host__ __device__(IndexType i) {
 			                 const uint64_t fst = uint64_t(row_indices_a_ptr[i])
 			                                      << 32;
 			                 const uint64_t snd = col_indices_a_ptr[i];
@@ -759,7 +760,7 @@ transform2(thrustshift::COO_view<const DataType, const IndexType> a,
 		                 [row_and_col_indices_ptr,
 		                  row_indices_b_ptr,
 		                  col_indices_b_ptr,
-		                  nnz_a] __device__(IndexType i) {
+		                  nnz_a] __host__ __device__(IndexType i) {
 			                 const uint64_t fst = uint64_t(row_indices_b_ptr[i])
 			                                      << 32;
 			                 const uint64_t snd = col_indices_b_ptr[i];
@@ -810,7 +811,7 @@ transform2(thrustshift::COO_view<const DataType, const IndexType> a,
 		auto zip_result_it = thrust::make_zip_iterator(
 		    thrust::make_tuple(result_values0.data(), result_values1.data()));
 
-		auto opp = [op] __device__(
+		auto opp = [op] __host__ __device__(
 		               const thrust::tuple<DataType, DataType>& tup0,
 		               const thrust::tuple<DataType, DataType>& tup1) {
 			return thrust::make_tuple(
@@ -830,18 +831,19 @@ transform2(thrustshift::COO_view<const DataType, const IndexType> a,
 		//
 		auto result_row_indices_ptr = result.row_indices().data();
 		auto result_col_indices_ptr = result.col_indices().data();
-		thrust::for_each(thrust::cuda::par.on(stream.handle()),
-		                 cit,
-		                 cit + nnz_result,
-		                 [keys_result_begin,
-		                  result_row_indices_ptr,
-		                  result_col_indices_ptr] __device__(IndexType i) {
-			                 const uint64_t key = keys_result_begin[i];
-			                 const uint64_t fst = key >> 32;
-			                 const uint64_t snd = (key << 32) >> 32;
-			                 result_row_indices_ptr[i] = fst;
-			                 result_col_indices_ptr[i] = snd;
-		                 });
+		thrust::for_each(
+		    thrust::cuda::par.on(stream.handle()),
+		    cit,
+		    cit + nnz_result,
+		    [keys_result_begin,
+		     result_row_indices_ptr,
+		     result_col_indices_ptr] __host__ __device__(IndexType i) {
+			    const uint64_t key = keys_result_begin[i];
+			    const uint64_t fst = key >> 32;
+			    const uint64_t snd = (key << 32) >> 32;
+			    result_row_indices_ptr[i] = fst;
+			    result_col_indices_ptr[i] = snd;
+		    });
 		result.set_storage_order(storage_order_t::row_major);
 		return std::make_tuple(std::move(result),
 		                       std::move(result_values1_nav));
@@ -865,12 +867,12 @@ COO<DataType, IndexType> symmetrize_abs(
 	                                                    mtx.num_rows(),
 	                                                    mtx.num_cols());
 
-	auto abs = [] __device__(DataType x) { return std::abs(x); };
+	auto abs = [] __host__ __device__(DataType x) { return std::abs(x); };
 
 	return transform(
 	    mtx,
 	    mtx_trans,
-	    [] __device__(DataType x, DataType y) { return x + y; },
+	    [] __host__ __device__(DataType x, DataType y) { return x + y; },
 	    abs,
 	    abs,
 	    memory_resource);
@@ -892,13 +894,13 @@ COO<DataType, IndexType> make_pattern_symmetric(
 	                                                    mtx.num_rows(),
 	                                                    mtx.num_cols());
 
-	auto identity = [] __device__(DataType x) { return x; };
-	auto make_zero = [] __device__(DataType x) { return DataType(0); };
+	auto identity = [] __host__ __device__(DataType x) { return x; };
+	auto make_zero = [] __host__ __device__(DataType x) { return DataType(0); };
 
 	return transform(
 	    mtx,
 	    mtx_trans,
-	    [] __device__(DataType x, DataType y) { return x + y; },
+	    [] __host__ __device__(DataType x, DataType y) { return x + y; },
 	    identity,
 	    make_zero,
 	    memory_resource);
@@ -919,14 +921,14 @@ symmetrize_abs_and_make_pattern_symmetric(
 	                                                    mtx.row_indices(),
 	                                                    mtx.num_rows(),
 	                                                    mtx.num_cols());
-	auto identity = [] __device__(DataType x) { return x; };
-	auto make_zero = [] __device__(DataType x) { return DataType(0); };
-	auto abs = [] __device__(DataType x) { return std::abs(x); };
+	auto identity = [] __host__ __device__(DataType x) { return x; };
+	auto make_zero = [] __host__ __device__(DataType x) { return DataType(0); };
+	auto abs = [] __host__ __device__(DataType x) { return std::abs(x); };
 
 	return transform2(
 	    mtx,
 	    mtx_trans,
-	    [] __device__(DataType x, DataType y) { return x + y; },
+	    [] __host__ __device__(DataType x, DataType y) { return x + y; },
 	    abs,
 	    identity,
 	    abs,
