@@ -152,8 +152,14 @@ CUDA_FD void bin_value256(T x,
 	// same bin.
 	const int lane_id = threadIdx.x % warp_size;
 
+#if __CUDA_ARCH__ >= 700
 	const int mask = __match_any_sync(0xffffffff, bi) &
 	                 (~(1 << lane_id)); // set our own bit to zero
+#else
+	const int mask{};
+	assert(false);
+	__trap();
+#endif
 
 	const int lsbi = sizeof(int) * 8 - __clz(mask) -
 	                 1; // get ID of highest thread which has this value
@@ -1065,7 +1071,6 @@ __global__ void k_select_radix_dynamic_parallelism(const T* data,
 	constexpr int child_block_dim = 256;
 
 	const int tid = threadIdx.x;
-	const int bid = blockIdx.x;
 
 	uint64_t prefix = 0;
 
@@ -1259,7 +1264,6 @@ __global__ void k_select_radix_from_histogram(IH* histogram,
 	static_assert(block_dim == 256);
 
 	const int tid = threadIdx.x;
-	const int bid = blockIdx.x;
 
 	uint64_t prefix = 0;
 	int k = *k_;
@@ -1309,7 +1313,6 @@ __global__ void k_select_radix_from_histogram_with_ptr(IH* histogram,
 	static_assert(block_dim == 256);
 
 	const int tid = threadIdx.x;
-	const int bid = blockIdx.x;
 
 	uint64_t prefix = [&]() -> uint64_t {
 		if constexpr (initialize_offset_prefix_k) {
@@ -1558,17 +1561,18 @@ void bin_values256_threadfence(cuda::stream_t& stream,
 }
 
 template <typename T, class MemoryResource, class F0, class F1>
-void bin_values256_atomic(cuda::stream_t& stream,
-                          gsl_lite::span<const T> values,
-                          gsl_lite::span<int> histogram,
-                          int bit_offset,
-                          uint64_t prefix,
-                          int block_dim,
-                          int grid_dim,
-                          int num_sh_histograms,
-                          F0 unary_functor,
-                          F1 bin_index_transform,
-                          MemoryResource& delayed_memory_resource) {
+void bin_values256_atomic(
+    cuda::stream_t& stream,
+    gsl_lite::span<const T> values,
+    gsl_lite::span<int> histogram,
+    int bit_offset,
+    uint64_t prefix,
+    int block_dim,
+    int grid_dim,
+    int num_sh_histograms,
+    F0 unary_functor,
+    F1 bin_index_transform,
+    [[maybe_unused]] MemoryResource& delayed_memory_resource) {
 
 	constexpr int histogram_length = 256;
 	gsl_Expects(histogram.size() == histogram_length);
@@ -1611,20 +1615,21 @@ void bin_values256_atomic(cuda::stream_t& stream,
 }
 
 template <typename T, class MemoryResource, class F0, class F1>
-void bin_values256_atomic_with_ptr(cuda::stream_t& stream,
-                                   gsl_lite::span<const T> values,
-                                   gsl_lite::span<int> histogram,
-                                   int bit_offset,
-                                   uint64_t* prefix,
-                                   int* k,
-                                   int k0,
-                                   bool use_k0_and_zero_prefix,
-                                   int block_dim,
-                                   int grid_dim,
-                                   int num_sh_histograms,
-                                   F0 unary_functor,
-                                   F1 bin_index_transform,
-                                   MemoryResource& delayed_memory_resource) {
+void bin_values256_atomic_with_ptr(
+    cuda::stream_t& stream,
+    gsl_lite::span<const T> values,
+    gsl_lite::span<int> histogram,
+    int bit_offset,
+    uint64_t* prefix,
+    int* k,
+    int k0,
+    bool use_k0_and_zero_prefix,
+    int block_dim,
+    int grid_dim,
+    int num_sh_histograms,
+    F0 unary_functor,
+    F1 bin_index_transform,
+    [[maybe_unused]] MemoryResource& delayed_memory_resource) {
 
 	constexpr int histogram_length = 256;
 	gsl_Expects(histogram.size() == histogram_length);

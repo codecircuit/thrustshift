@@ -204,12 +204,15 @@ BOOST_DATA_TEST_CASE(test_coo_get_diagonal, test_data, td) {
 
 	thrustshift::managed_vector<float> diagonal(N);
 
-	Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> eigen_mtx = eigen::coo2sparse_mtx<Eigen::SparseMatrix<float>>(coo);
+	Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> eigen_mtx =
+	    eigen::coo2sparse_mtx<Eigen::SparseMatrix<float>>(coo);
 	async::get_diagonal<float>(stream, coo, diagonal);
 	stream.synchronize();
 	auto eig_diag = eigen_mtx.diagonal();
 	for (size_t i = 0; i < N; ++i) {
-		BOOST_TEST_CONTEXT("row_id = " << i << ", eigen_diag = " << eig_diag[i] << ", thrustshift_diag = " << diagonal[i]) {
+		BOOST_TEST_CONTEXT("row_id = " << i << ", eigen_diag = " << eig_diag[i]
+		                               << ", thrustshift_diag = "
+		                               << diagonal[i]) {
 			BOOST_TEST(eig_diag[i] == diagonal[i]);
 		}
 	}

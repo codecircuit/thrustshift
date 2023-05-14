@@ -204,7 +204,7 @@ int main(int argc, const char* argv[]) {
 			do_k_select(N, k, scheme_id);
 			cuda::profiling::stop();
 			const std::string range_label(std::to_string(scheme_id));
-			auto range = cuda::profiling::mark::range_start(range_label);
+			auto range = cuda::profiling::mark::range_start(range_label.c_str());
 			start.record(stream);
 			for (int measurement_id = 0, e = get_num_measurements(N);
 			     measurement_id < e;

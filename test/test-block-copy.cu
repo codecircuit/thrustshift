@@ -23,7 +23,7 @@ __global__ void do_block_copy_simple(gsl_lite::span<const int> src,
 	block_copy<BLOCK_DIM, NUM_ELEMENTS>(src.begin(), dst.begin());
 }
 
-template<int BLOCK_DIM, int N>
+template <int BLOCK_DIM, int N>
 void do_simple_block_copy_test() {
 	auto device = cuda::device::current::get();
 	managed_vector<int> src(N);
@@ -32,8 +32,8 @@ void do_simple_block_copy_test() {
 
 	cuda::launch(do_block_copy_simple<BLOCK_DIM, N>,
 	             cuda::make_launch_config(1, BLOCK_DIM),
-	             src,
-	             dst);
+	             gsl::make_span(src),
+	             gsl::make_span(dst));
 
 	device.synchronize();
 	BOOST_TEST(std::equal(src.begin(), src.end(), dst.begin()));

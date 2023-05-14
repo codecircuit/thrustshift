@@ -18,13 +18,14 @@ target_include_directories(
 )
 target_compile_features(thrustshift INTERFACE cxx_std_17)
 
-# For compatibility with CUDA 12 as code uses legacy CUDA Dynamic Parallelism
+# For compatibility with CUDA 12: usage of legacy CUDA Dynamic Parallelism
 target_compile_definitions(thrustshift INTERFACE CUDA_FORCE_CDP1_IF_SUPPORTED)
 
 target_link_libraries(
   thrustshift
   INTERFACE
-    gsl::gsl-lite-v1 cuda-api-wrappers::runtime-api sysmakeshift::sysmakeshift
+    gsl::gsl-lite-v1 cuda-api-wrappers::runtime-and-driver
+    sysmakeshift::sysmakeshift
     CUB::CUB
     makeshift::makeshift
     cuda-kat::cuda-kat

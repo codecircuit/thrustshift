@@ -30,7 +30,7 @@ BOOST_AUTO_TEST_CASE(test_memory_resource_with_pmr_vector_construction_cpu,
 	pmr::delayed_pool_type<pmr::host_resource_type> memory_resource;
 	{ auto v = construct(memory_resource); }
 
-	for (const auto [k, v] : memory_resource.get_book()) {
+	for (const auto& [k, v] : memory_resource.get_book()) {
 		for (const auto& page : v) {
 			BOOST_TEST(!page.allocated);
 			using T = float;

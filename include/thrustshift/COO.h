@@ -457,11 +457,12 @@ void get_diagonal(cuda::stream_t& stream, COO&& mtx, gsl_lite::span<T> diag) {
 	    ceil_divide(gsl_lite::narrow<cuda::grid::dimension_t>(nnz),
 	                gsl_lite::narrow<cuda::grid::dimension_t>(block_dim));
 	fill(stream, diag, 0);
+	COO_view<const T0, const I> mtx_view(mtx);
 	if (nnz != 0) {
 		cuda::enqueue_launch(kernel::get_diagonal<T0, I, T>,
 		                     stream,
 		                     cuda::make_launch_config(grid_dim, block_dim),
-		                     mtx,
+		                     mtx_view,
 		                     diag);
 	}
 }
