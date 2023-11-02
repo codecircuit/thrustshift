@@ -1,3 +1,5 @@
+#include <cstring>
+
 #include <array>
 #include <chrono>
 #include <iostream>
@@ -170,7 +172,8 @@ int main(int argc, const char* argv[]) {
 				    [prefix, bit_offset] __host__ __device__(const T& x) {
 					    using std::abs;
 					    const T abs_x = abs(x);
-					    const I k = *reinterpret_cast<I*>((void*) (&abs_x));
+					    I k;
+					    std::memcpy(&k, &abs_x, sizeof(I));
 					    return k;
 				    });
 				async::bin_values_into_histogram(stream,
