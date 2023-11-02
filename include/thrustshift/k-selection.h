@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstring>
+
 #include <cooperative_groups.h>
 
 #include <gsl-lite/gsl-lite.hpp>
@@ -134,7 +136,11 @@ CUDA_FD void bin_value256(T x,
 	//  x x x x x x x x x x x x x x x x x x x x x x x  <--- `x` represents one bit
 	// |--bit_offset---|--bit_size---|--rest---------|
 	//
-	const I i = *reinterpret_cast<I*>((void*) (&x));
+	const I i = [&x] CUDA_D {
+		I i;
+		std::memcpy(&i, &x, sizeof(I));
+		return i;
+	}();
 	const K b = (i >> (sizeof(I) * 8 - bit_size - bit_offset)) &
 	            I(std::numeric_limits<K>::max());
 
@@ -153,18 +159,21 @@ CUDA_FD void bin_value256(T x,
 	const int lane_id = threadIdx.x % warp_size;
 
 #if __CUDA_ARCH__ >= 700
-	const int mask = __match_any_sync(0xffffffff, bi) &
-	                 (~(1 << lane_id)); // set our own bit to zero
+	const unsigned umask = __match_any_sync(0xffffffff, bi) &
+	                       (~(1 << lane_id)); // set our own bit to zero
 #else
-	const int mask{};
+	const unsigned umask{};
 	assert(false);
 	__trap();
 #endif
 
+	const int mask = [&umask] CUDA_D {
+		int mask;
+		std::memcpy(&mask, &umask, sizeof(int));
+		return mask;
+	}();
 	const int lsbi = sizeof(int) * 8 - __clz(mask) -
 	                 1; // get ID of highest thread which has this value
-	const unsigned umask =
-	    *reinterpret_cast<const unsigned*>((const void*) &mask);
 	k = lsbi > lane_id ? 0 : (__popc(umask) + 1);
 
 	if (k > 0 && bi >= 0) {
@@ -457,7 +466,8 @@ struct k_largest_values_abs_block {
 			auto x = abs(thrust::get<0>(tup));
 			using I =
 			    typename thrustshift::make_uintegral_of_equal_size<T>::type;
-			const I i = *reinterpret_cast<I*>((void*) (&x));
+			I i;
+			std::memcpy(&i, &x, sizeof(I));
 			return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
 		};
 
@@ -1096,7 +1106,14 @@ __global__ void k_select_radix_dynamic_parallelism(const T* data,
 			                                          prefix,
 			                                          unary_functor,
 			                                          bin_index_transform);
+#if __CUDA_ARCH__ < 900
+			// Not possible in device code on Hopper and later, generally deprecated in CUDA 12
+			// TODO Refactor to use CDP2 instead for compatibility with Hopper and future CUDA versions
 			cudaDeviceSynchronize();
+#else
+			assert(false);
+			__trap();
+#endif
 		}
 		__syncthreads();
 
@@ -1206,7 +1223,14 @@ __global__ void k_select_radix_dynamic_parallelism_atomic_binning(
 			                                          prefix,
 			                                          unary_functor,
 			                                          bin_index_transform);
+#if __CUDA_ARCH__ < 900
+			// Not possible in device code on Hopper and later, generally deprecated in CUDA 12
+			// TODO Refactor to use CDP2 instead for compatibility with Hopper and future CUDA versions
 			cudaDeviceSynchronize();
+#else
+			assert(false);
+			__trap();
+#endif
 		}
 		__syncthreads();
 
@@ -2042,7 +2066,8 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_with_cub(
 		    [prefix, bit_offset] __host__ __device__(const T& x) {
 			    using std::abs;
 			    const T abs_x = abs(x);
-			    const I i = *reinterpret_cast<I*>((void*) (&abs_x));
+			    I i;
+			    std::memcpy(&i, &abs_x, sizeof(I));
 			    return i;
 		    });
 		async::bin_values_into_histogram(stream,
@@ -2093,7 +2118,8 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
-		const I i = *reinterpret_cast<I*>((void*) (&x));
+		I i;
+		std::memcpy(&i, &x, sizeof(I));
 		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
 	};
 	auto tmp = make_not_a_vector<int>(1, delayed_memory_resource);
@@ -2127,7 +2153,8 @@ void select_k_largest_values_abs_atomic(
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
-		const I i = *reinterpret_cast<I*>((void*) (&x));
+		I i;
+		std::memcpy(&i, &x, sizeof(I));
 		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
 	};
 	auto tmp = make_not_a_vector<int>(1, delayed_memory_resource);
@@ -2162,7 +2189,8 @@ void select_k_largest_values_abs_with_cub(
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
-		const I i = *reinterpret_cast<I*>((void*) (&x));
+		I i;
+		std::memcpy(&i, &x, sizeof(I));
 		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
 	};
 	auto tmp = make_not_a_vector<int>(1, delayed_memory_resource);
@@ -2230,7 +2258,8 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
-		const I i = *reinterpret_cast<I*>((void*) (&x));
+		I i;
+		std::memcpy(&i, &x, sizeof(I));
 		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
 	};
 
@@ -2295,7 +2324,8 @@ void select_k_largest_values_abs2(cuda::stream_t& stream,
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
-		const I i = *reinterpret_cast<I*>((void*) (&x));
+		I i;
+		std::memcpy(&i, &x, sizeof(I));
 		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
 	};
 
@@ -2416,7 +2446,8 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
-		const I i = *reinterpret_cast<I*>((void*) (&x));
+		I i;
+		std::memcpy(&i, &x, sizeof(I));
 		return (i >> sizeof(I) * 8 - bit_offset) >= static_cast<I>(prefix);
 	};
 
@@ -2458,7 +2489,8 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 		using std::abs;
 		auto x = abs(thrust::get<0>(tup));
 		using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
-		const I i = *reinterpret_cast<I*>((void*) (&x));
+		I i;
+		std::memcpy(&i, &x, sizeof(I));
 		// No performance effects measured when we load these values here from
 		// global memory. Probably they end up in the caches and can be loaded fast.
 		uint64_t prefix = *prefix_ptr;

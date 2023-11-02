@@ -697,17 +697,17 @@ template <typename DataType,
           class UnaryOperatorB0,
           class UnaryOperatorB1,
           class MemoryResource>
-std::tuple<thrustshift::COO<DataType, IndexType>,
-           decltype(thrustshift::make_not_a_vector<DataType>(1,
-                                                             MemoryResource{}))>
-transform2(thrustshift::COO_view<const DataType, const IndexType> a,
-           thrustshift::COO_view<const DataType, const IndexType> b,
-           BinaryOperator&& op,
-           UnaryOperatorA0&& op_a0,
-           UnaryOperatorA1&& op_a1,
-           UnaryOperatorB0&& op_b0,
-           UnaryOperatorB1&& op_b1,
-           MemoryResource& memory_resource) {
+auto transform2(thrustshift::COO_view<const DataType, const IndexType> a,
+                thrustshift::COO_view<const DataType, const IndexType> b,
+                BinaryOperator&& op,
+                UnaryOperatorA0&& op_a0,
+                UnaryOperatorA1&& op_a1,
+                UnaryOperatorB0&& op_b0,
+                UnaryOperatorB1&& op_b1,
+                MemoryResource& memory_resource)
+    -> std::tuple<thrustshift::COO<DataType, IndexType>,
+                  decltype(thrustshift::make_not_a_vector<
+                           DataType>(1, memory_resource))> {
 
 	const auto nnz_a = a.values().size();
 	const auto nnz_b = b.values().size();
@@ -776,10 +776,8 @@ transform2(thrustshift::COO_view<const DataType, const IndexType> a,
 		    thrust::make_tuple(values0.begin(), values1.begin()));
 
 		std::pmr::polymorphic_allocator<KeyT> alloc(&memory_resource);
-		thrust::sort_by_key(thrust::cuda::par(alloc),
-		                    keys_begin,
-		                    keys_end,
-		                    zip_value_it.begin());
+		thrust::sort_by_key(
+		    thrust::cuda::par(alloc), keys_begin, keys_end, zip_value_it);
 
 		const std::size_t nnz_result =
 		    thrust::inner_product(thrust::cuda::par(alloc),
@@ -822,7 +820,7 @@ transform2(thrustshift::COO_view<const DataType, const IndexType> a,
 		thrust::reduce_by_key(thrust::cuda::par(alloc),
 		                      keys_begin,
 		                      keys_end,
-		                      zip_value_it.begin(),
+		                      zip_value_it,
 		                      keys_result_begin,
 		                      zip_result_it,
 		                      thrust::equal_to<KeyT>(),
@@ -908,12 +906,12 @@ COO<DataType, IndexType> make_pattern_symmetric(
 }
 
 template <typename DataType, typename IndexType, class MemoryResource>
-std::tuple<thrustshift::COO<DataType, IndexType>,
-           decltype(thrustshift::make_not_a_vector<DataType>(1,
-                                                             MemoryResource{}))>
-symmetrize_abs_and_make_pattern_symmetric(
+auto symmetrize_abs_and_make_pattern_symmetric(
     COO_view<const DataType, const IndexType> mtx,
-    MemoryResource& memory_resource) {
+    MemoryResource& memory_resource)
+    -> std::tuple<thrustshift::COO<DataType, IndexType>,
+                  decltype(thrustshift::make_not_a_vector<
+                           DataType>(1, memory_resource))> {
 
 	gsl_Expects(!mtx.values().empty());
 
