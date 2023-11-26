@@ -161,7 +161,9 @@ BOOST_DATA_TEST_CASE(test_symmetrize_abs_coo, test_data, td) {
 	}
 }
 
-BOOST_AUTO_TEST_CASE(test_symmetrize_abs_coo_matrix_store) {
+// Disabled by default is this requires a matrix market file
+BOOST_AUTO_TEST_CASE(test_symmetrize_abs_coo_matrix_store,
+                     *boost::unit_test::disabled()) {
 
 	const std::string pth =
 	    "/mnt/matrix_store/ModelPDEs/A_problem4n256square/"

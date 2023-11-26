@@ -107,7 +107,9 @@ BOOST_DATA_TEST_CASE(test_container_conversion, test_data, td) {
 	BOOST_TEST(b);
 }
 
-BOOST_AUTO_TEST_CASE(test_container_conversion_matrix_store) {
+// Disabled per default as it requires a matrix market file
+BOOST_AUTO_TEST_CASE(test_container_conversion_matrix_store,
+                     *boost::unit_test::disabled()) {
 	const std::string pth =
 	    "/mnt/matrix_store/ModelPDEs/A_problem4n256square/"
 	    "A_problem4n256square.mtx";
