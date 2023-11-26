@@ -10,8 +10,6 @@
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
 
-#include <makeshift/iomanip.hpp>
-
 #include <thrustshift/k-selection.h>
 #include <thrustshift/managed-vector.h>
 #include <thrustshift/memory-resource.h>
@@ -33,10 +31,27 @@ constexpr auto reflect(gsl_lite::type_identity<scheme_t>) {
 }
 
 inline std::ostream& operator<<(std::ostream& stream, scheme_t c) {
-	return stream << makeshift::as_enum(c);
+	for (auto& p : reflect(gsl_lite::type_identity<scheme_t>{})) {
+		if (p.first == c) {
+			stream << p.second;
+		}
+	}
+	return stream;
 }
+
 inline std::istream& operator>>(std::istream& stream, scheme_t& c) {
-	return stream >> makeshift::as_enum(c);
+
+	std::string s;
+	stream >> s;
+	for (auto& p : reflect(gsl_lite::type_identity<scheme_t>{})) {
+		if (p.second == s) {
+			c = p.first;
+			return stream;
+		}
+	}
+	std::cerr << "ERROR: scheme_t not available. Your input: `" << s << "`"
+	          << std::endl;
+	std::terminate();
 }
 
 struct cli_params_t {

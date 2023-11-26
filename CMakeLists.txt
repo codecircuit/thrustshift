@@ -28,6 +28,5 @@ cmakeshift_install_basic_package_files(
   "CMakeshift"
   "CUB"
   "sysmakeshift"
-  "makeshift"
   "gsl-lite"
 )

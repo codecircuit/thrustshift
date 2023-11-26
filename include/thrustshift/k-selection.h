@@ -6,9 +6,8 @@
 
 #include <cub/cub.cuh>
 
-#include <makeshift/variant.hpp>
-
 #include <thrustshift/constant.h>
+#include <thrustshift/constval.h>
 #include <thrustshift/copy.h>
 #include <thrustshift/defines.h>
 #include <thrustshift/fill.h>
@@ -1439,13 +1438,11 @@ void bin_values256(cudaStream_t& stream,
 	constexpr int histogram_length = 256;
 	gsl_Expects(histogram.size() == histogram_length);
 
-	auto block_dim_v = makeshift::expand(
-	    block_dim, MAKESHIFT_CONSTVAL(std::array{64, 128, 256, 512}));
-	auto num_histograms_v = makeshift::expand(
-	    num_histograms,
-	    MAKESHIFT_CONSTVAL(std::array{68, 2 * 68, 3 * 68, 4 * 68, 8 * 68}));
-	auto num_sh_histograms_v = makeshift::expand(
-	    num_sh_histograms, MAKESHIFT_CONSTVAL(std::array{1, 2, 3, 4, 8}));
+	auto block_dim_v = make_constval<int, 64, 128, 256, 512>(block_dim);
+	auto num_histograms_v =
+	    make_constval<int, 68, 2 * 68, 3 * 68, 4 * 68, 8 * 68>(num_histograms);
+	auto num_sh_histograms_v =
+	    make_constval<int, 1, 2, 3, 4, 8>(num_sh_histograms);
 
 	std::visit(
 	    [&](auto block_dim, auto num_histograms, auto num_sh_histograms) {
@@ -1504,13 +1501,11 @@ void bin_values256_threadfence(cudaStream_t& stream,
 	constexpr int histogram_length = 256;
 	gsl_Expects(histogram.size() == histogram_length);
 
-	auto block_dim_v =
-	    makeshift::expand(block_dim, MAKESHIFT_CONSTVAL(std::array{256, 512}));
-	auto num_histograms_v = makeshift::expand(
-	    num_histograms,
-	    MAKESHIFT_CONSTVAL(std::array{68, 2 * 68, 3 * 68, 4 * 68, 8 * 68}));
-	auto num_sh_histograms_v = makeshift::expand(
-	    num_sh_histograms, MAKESHIFT_CONSTVAL(std::array{1, 2, 3, 4, 8}));
+	auto block_dim_v = make_constval<int, 256, 512>(block_dim);
+	auto num_histograms_v =
+	    make_constval<int, 68, 2 * 68, 3 * 68, 4 * 68, 8 * 68>(num_histograms);
+	auto num_sh_histograms_v =
+	    make_constval<int, 1, 2, 3, 4, 8>(num_sh_histograms);
 
 	auto tmp = make_not_a_vector<unsigned>(2, delayed_memory_resource);
 	auto tickets = tmp.to_span();
@@ -1567,13 +1562,11 @@ void bin_values256_atomic(
 	constexpr int histogram_length = 256;
 	gsl_Expects(histogram.size() == histogram_length);
 
-	auto block_dim_v =
-	    makeshift::expand(block_dim, MAKESHIFT_CONSTVAL(std::array{256, 512}));
-	auto grid_dim_v = makeshift::expand(
-	    grid_dim,
-	    MAKESHIFT_CONSTVAL(std::array{68, 2 * 68, 3 * 68, 4 * 68, 8 * 68}));
-	auto num_sh_histograms_v = makeshift::expand(
-	    num_sh_histograms, MAKESHIFT_CONSTVAL(std::array{1, 2, 3, 4, 8}));
+	auto block_dim_v = make_constval<int, 256, 512>(block_dim);
+	auto grid_dim_v =
+	    make_constval<int, 68, 2 * 68, 3 * 68, 4 * 68, 8 * 68>(grid_dim);
+	auto num_sh_histograms_v =
+	    make_constval<int, 1, 2, 3, 4, 8>(num_sh_histograms);
 
 	std::visit(
 	    [&](auto block_dim, auto grid_dim, auto num_sh_histograms) {
@@ -1624,15 +1617,13 @@ void bin_values256_atomic_with_ptr(
 	constexpr int histogram_length = 256;
 	gsl_Expects(histogram.size() == histogram_length);
 
-	auto block_dim_v =
-	    makeshift::expand(block_dim, MAKESHIFT_CONSTVAL(std::array{256, 512}));
-	auto grid_dim_v = makeshift::expand(
-	    grid_dim,
-	    MAKESHIFT_CONSTVAL(std::array{68, 2 * 68, 3 * 68, 4 * 68, 8 * 68}));
-	auto num_sh_histograms_v = makeshift::expand(
-	    num_sh_histograms, MAKESHIFT_CONSTVAL(std::array{1, 2, 3, 4, 8}));
-	auto use_k0_and_zero_prefix_v = makeshift::expand(
-	    use_k0_and_zero_prefix, MAKESHIFT_CONSTVAL(std::array{0, 1}));
+	auto block_dim_v = make_constval<int, 256, 512>(block_dim);
+	auto grid_dim_v =
+	    make_constval<int, 68, 2 * 68, 3 * 68, 4 * 68, 8 * 68>(grid_dim);
+	auto num_sh_histograms_v =
+	    make_constval<int, 1, 2, 3, 4, 8>(num_sh_histograms);
+	auto use_k0_and_zero_prefix_v =
+	    make_constval<int, 0, 1>(use_k0_and_zero_prefix);
 
 	std::visit(
 	    [&](auto block_dim,
@@ -1978,8 +1969,7 @@ void k_largest_values_abs_radix_atomic_devicehisto_with_ptr(
 		    bin_index_transform,
 		    delayed_memory_resource);
 
-		auto flag_v = makeshift::expand(bit_offset == 0,
-		                                MAKESHIFT_CONSTVAL(std::array{0, 1}));
+		auto flag_v = make_constval<int, 0, 1>(bit_offset == 0);
 		std::visit(
 		    [&](auto flag) {
 			    kernel::k_select_radix_from_histogram_with_ptr<IH, 256, flag>
