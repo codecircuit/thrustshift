@@ -3,8 +3,6 @@
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
 
-#include <cuda/runtime_api.hpp>
-
 #include <gsl-lite/gsl-lite.hpp>
 
 #include <cub/cub.cuh>
@@ -149,7 +147,7 @@ template <class KeyInRange,
           class ValueInRange,
           class ValueOutRange,
           class MemoryResource>
-void sort_batched_descending(cuda::stream_t& stream,
+void sort_batched_descending(cudaStream_t& stream,
                              KeyInRange&& keys_in,
                              KeyOutRange&& keys_out,
                              ValueInRange&& values_in,
@@ -179,20 +177,21 @@ void sort_batched_descending(cuda::stream_t& stream,
 	using KeyT = typename std::remove_reference<KeyOutRange>::type::value_type;
 
 	auto exec = [&] {
-		cuda::throw_if_error(cub::DeviceSegmentedRadixSort::SortPairsDescending(
-		    tmp_ptr,
-		    tmp_bytes_size,
-		    keys_in.data(),
-		    keys_out.data(),
-		    values_in.data(),
-		    values_out.data(),
-		    gsl_lite::narrow<int>(N),
-		    gsl_lite::narrow<int>(num_batches),
-		    tit,
-		    tit + 1,
-		    0, // default value by CUB
-		    sizeof(KeyT) * 8, // default value by CUB
-		    stream.handle()));
+		THRUSTSHIFT_CHECK_CUDA_ERROR(
+		    cub::DeviceSegmentedRadixSort::SortPairsDescending(
+		        tmp_ptr,
+		        tmp_bytes_size,
+		        keys_in.data(),
+		        keys_out.data(),
+		        values_in.data(),
+		        values_out.data(),
+		        gsl_lite::narrow<int>(N),
+		        gsl_lite::narrow<int>(num_batches),
+		        tit,
+		        tit + 1,
+		        0, // default value by CUB
+		        sizeof(KeyT) * 8, // default value by CUB
+		        stream));
 	};
 	exec();
 	auto tmp =
@@ -211,7 +210,7 @@ template <class KeyInRange,
           class ValueOutRange,
           class RowPtrs,
           class MemoryResource>
-void segmented_sort(cuda::stream_t& stream,
+void segmented_sort(cudaStream_t& stream,
                     KeyInRange&& keys_in,
                     KeyOutRange&& keys_out,
                     ValueInRange&& values_in,
@@ -232,7 +231,7 @@ void segmented_sort(cuda::stream_t& stream,
 	using KeyT = typename std::remove_reference<KeyOutRange>::type::value_type;
 
 	auto exec = [&] {
-		cuda::throw_if_error(cub::DeviceSegmentedRadixSort::SortPairs(
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cub::DeviceSegmentedRadixSort::SortPairs(
 		    tmp_ptr,
 		    tmp_bytes_size,
 		    keys_in.data(),
@@ -245,7 +244,7 @@ void segmented_sort(cuda::stream_t& stream,
 		    row_ptrs.data() + 1,
 		    0, // default value by CUB
 		    sizeof(KeyT) * 8, // default value by CUB
-		    stream.handle()));
+		    stream));
 	};
 	exec();
 	auto tmp =
@@ -277,7 +276,7 @@ template <class KeyInRange,
           class ValueInRange,
           class ValueOutRange,
           class MemoryResource>
-void sort_batched_abs(cuda::stream_t& stream,
+void sort_batched_abs(cudaStream_t& stream,
                       KeyInRange&& keys_in,
                       KeyOutRange&& keys_out,
                       ValueInRange&& values_in,
@@ -308,7 +307,7 @@ void sort_batched_abs(cuda::stream_t& stream,
 	void* tmp_ptr = nullptr;
 
 	auto exec = [&] {
-		cuda::throw_if_error(cub::DeviceSegmentedRadixSort::SortPairs(
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cub::DeviceSegmentedRadixSort::SortPairs(
 		    tmp_ptr,
 		    tmp_bytes_size,
 		    reinterpret_cast<const AbsT*>(keys_in.data()),
@@ -321,7 +320,7 @@ void sort_batched_abs(cuda::stream_t& stream,
 		    tit + 1,
 		    0, // first key bit for comparison
 		    sizeof(KeyT) * 8 - 1, // highest bit is used to save sign
-		    stream.handle()));
+		    stream));
 	};
 	exec();
 	auto tmp =

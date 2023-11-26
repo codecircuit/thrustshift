@@ -3,10 +3,9 @@
 #include <type_traits>
 #include <utility>
 
-#include <cuda/define_specifiers.hpp>
-#include <cuda/runtime_api.hpp>
-
 #include <gsl-lite/gsl-lite.hpp>
+
+#include <thrustshift/defines.h>
 
 namespace thrustshift {
 
@@ -28,7 +27,7 @@ __global__ void transform(gsl_lite::span<const SrcT> src,
 namespace async {
 
 template <class SrcRange, class DstRange, class UnaryFunctor>
-void transform(cuda::stream_t& stream,
+void transform(cudaStream_t& stream,
                SrcRange&& src,
                DstRange&& dst,
                UnaryFunctor f) {
@@ -43,12 +42,11 @@ void transform(cuda::stream_t& stream,
 	using dst_value_type =
 	    typename std::remove_reference<DstRange>::type::value_type;
 
-	constexpr cuda::grid::block_dimension_t block_dim = 128;
-	const cuda::grid::dimension_t grid_dim =
-	    (src.size() + block_dim - 1) / block_dim;
-	auto c = cuda::make_launch_config(grid_dim, block_dim);
-	auto k = kernel::transform<src_value_type, dst_value_type, decltype(f)>;
-	cuda::enqueue_launch(k, stream, c, src, dst, f);
+	constexpr unsigned block_dim = 128;
+	const unsigned grid_dim = (src.size() + block_dim - 1) / block_dim;
+	kernel::transform<src_value_type, dst_value_type, decltype(f)>
+	    <<<grid_dim, block_dim, 0, stream>>>(src, dst, f);
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 }
 
 } // namespace async
@@ -63,9 +61,9 @@ template <typename T,
           class Arr,
           class F,
           std::size_t... I>
-CUDA_FHD auto transform_impl(const Arr<T, N>& arr,
-                             F&& f,
-                             std::index_sequence<I...>) {
+THRUSTSHIFT_FHD auto transform_impl(const Arr<T, N>& arr,
+                                    F&& f,
+                                    std::index_sequence<I...>) {
 	return Arr<T, N>({f(arr[I])...});
 }
 
@@ -77,7 +75,7 @@ template <typename T,
           class Arr,
           class F,
           typename Indices = std::make_index_sequence<N>>
-CUDA_FHD auto transform(const Arr<T, N>& arr, F&& f) {
+THRUSTSHIFT_FHD auto transform(const Arr<T, N>& arr, F&& f) {
 	return detail::transform_impl(arr, std::forward<F>(f), Indices{});
 }
 
@@ -88,7 +86,9 @@ namespace tuple {
 namespace detail {
 
 template <typename Tuple, typename F, std::size_t... I>
-CUDA_FHD auto transform_impl(Tuple&& t, F&& f, std::index_sequence<I...>) {
+THRUSTSHIFT_FHD auto transform_impl(Tuple&& t,
+                                    F&& f,
+                                    std::index_sequence<I...>) {
 	using TupleT = typename std::remove_reference<Tuple>::type;
 	using std::get;
 	return TupleT(f(get<I>(t))...);
@@ -97,7 +97,7 @@ CUDA_FHD auto transform_impl(Tuple&& t, F&& f, std::index_sequence<I...>) {
 } // namespace detail
 
 template <typename... Ts, template <typename...> class TupleT, typename F>
-CUDA_FHD auto transform(TupleT<Ts...> const& t, F&& f) {
+THRUSTSHIFT_FHD auto transform(TupleT<Ts...> const& t, F&& f) {
 	using std::tuple_size;
 	auto seq = std::make_index_sequence<tuple_size<TupleT<Ts...>>::value>{};
 	return detail::transform_impl(t, std::forward<F>(f), seq);

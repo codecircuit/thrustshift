@@ -6,9 +6,11 @@
 #include <memory_resource>
 #include <vector>
 
+#include <cuda_runtime_api.h>
+
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/runtime_api.hpp>
+#include <thrustshift/defines.h>
 
 namespace thrustshift {
 
@@ -18,15 +20,18 @@ namespace pmr {
 class managed_resource_type : public std::pmr::memory_resource {
 	void* do_allocate(std::size_t bytes,
 	                  [[maybe_unused]] std::size_t alignment) override {
-		auto device = cuda::device::current::get();
-		auto region = cuda::memory::managed::allocate(device, bytes);
-		return region.get();
+
+		void* p = nullptr;
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaMallocManaged(&p, bytes));
+		if (p == nullptr)
+			throw std::bad_alloc{};
+		return p;
 	}
 
 	void do_deallocate(void* p,
 	                   [[maybe_unused]] std::size_t bytes,
 	                   [[maybe_unused]] std::size_t alignment) override {
-		cuda::memory::managed::free(p);
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaFree(p));
 	}
 
 	bool do_is_equal(
@@ -39,15 +44,17 @@ class managed_resource_type : public std::pmr::memory_resource {
 class device_resource_type : public std::pmr::memory_resource {
 	void* do_allocate(std::size_t bytes,
 	                  [[maybe_unused]] std::size_t alignment) override {
-		auto device = cuda::device::current::get();
-		auto region = cuda::memory::device::allocate(device, bytes);
-		return region.get();
+		void* p = nullptr;
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaMalloc(&p, bytes));
+		if (p == nullptr)
+			throw std::bad_alloc{};
+		return p;
 	}
 
 	void do_deallocate(void* p,
 	                   [[maybe_unused]] std::size_t bytes,
 	                   [[maybe_unused]] std::size_t alignment) override {
-		cuda::memory::device::free(p);
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaFree(p));
 	}
 
 	bool do_is_equal(
@@ -78,15 +85,14 @@ class pinned_host_resource_type : public std::pmr::memory_resource {
 	void* do_allocate(std::size_t bytes,
 	                  [[maybe_unused]] std::size_t alignment) override {
 		void* ptr = nullptr;
-		cuda::throw_if_error(cudaMallocHost(&ptr, bytes),
-		                     "failed allocating pinned host memory");
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaMallocHost(&ptr, bytes));
 		return ptr;
 	}
 
 	void do_deallocate(void* p,
 	                   [[maybe_unused]] std::size_t bytes,
 	                   [[maybe_unused]] std::size_t alignment) override {
-		cuda::throw_if_error(cudaFreeHost(p), "failed cudaFreeHost");
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaFreeHost(p));
 	}
 
 	bool do_is_equal(

@@ -4,23 +4,23 @@
 #include <exception>
 #include <type_traits>
 
-#include <cuda/define_specifiers.hpp>
-
 #include <gsl-lite/gsl-lite.hpp>
+
+#include <thrustshift/defines.h>
 
 namespace thrustshift {
 
 namespace detail {
 
 template <typename I, std::enable_if_t<std::is_signed<I>::value, bool> = true>
-CUDA_FHD I abs_(I i) {
+THRUSTSHIFT_FHD I abs_(I i) {
 	return i < I(0) ? I(-1) * i : i;
 }
 
 // To prevent compiler warnings about unnecassary comparisons of unsigned types
 // and zero
 template <typename I, std::enable_if_t<std::is_unsigned<I>::value, bool> = true>
-CUDA_FHD I abs_(I i) {
+THRUSTSHIFT_FHD I abs_(I i) {
 	return i;
 }
 
@@ -44,7 +44,7 @@ CUDA_FHD I abs_(I i) {
  *  ```
  */
 template <typename I, std::enable_if_t<std::is_integral<I>::value, bool> = true>
-CUDA_FHD I ceil_divide(I a, I b) {
+THRUSTSHIFT_FHD I ceil_divide(I a, I b) {
 	auto sign_ = [](I x) { return x > I(0) ? I(1) : I(-1); };
 	if (a == I(0)) {
 		return 0;
@@ -68,36 +68,36 @@ struct AbsView {
 };
 
 template <typename T>
-CUDA_FHD bool operator==(const AbsView<T>& a, const AbsView<T>& b) {
+THRUSTSHIFT_FHD bool operator==(const AbsView<T>& a, const AbsView<T>& b) {
 	using std::abs;
 	return abs(a.value) == abs(b.value);
 }
 
 template <typename T>
-CUDA_FHD bool operator!=(const AbsView<T>& a, const AbsView<T>& b) {
+THRUSTSHIFT_FHD bool operator!=(const AbsView<T>& a, const AbsView<T>& b) {
 	return !(a == b);
 }
 
 template <typename T>
-CUDA_FHD bool operator<(const AbsView<T>& a, const AbsView<T>& b) {
+THRUSTSHIFT_FHD bool operator<(const AbsView<T>& a, const AbsView<T>& b) {
 	using std::abs;
 	return abs(a.value) < abs(b.value);
 }
 
 template <typename T>
-CUDA_FHD bool operator>(const AbsView<T>& a, const AbsView<T>& b) {
+THRUSTSHIFT_FHD bool operator>(const AbsView<T>& a, const AbsView<T>& b) {
 	using std::abs;
 	return abs(a.value) > abs(b.value);
 }
 
 template <typename T>
-CUDA_FHD bool operator>=(const AbsView<T>& a, const AbsView<T>& b) {
+THRUSTSHIFT_FHD bool operator>=(const AbsView<T>& a, const AbsView<T>& b) {
 	using std::abs;
 	return abs(a.value) >= abs(b.value);
 }
 
 template <typename T>
-CUDA_FHD bool operator<=(const AbsView<T>& a, const AbsView<T>& b) {
+THRUSTSHIFT_FHD bool operator<=(const AbsView<T>& a, const AbsView<T>& b) {
 	using std::abs;
 	return abs(a.value) <= abs(b.value);
 }
@@ -110,7 +110,7 @@ CUDA_FHD bool operator<=(const AbsView<T>& a, const AbsView<T>& b) {
  * ```
  */
 template <typename T>
-CUDA_FHD std::tuple<T, T> sincos(T x) {
+THRUSTSHIFT_FHD std::tuple<T, T> sincos(T x) {
 	T sin_result, cos_result;
 #ifdef __CUDA_ARCH__
 	if constexpr (std::is_same<T, double>::value) {

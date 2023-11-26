@@ -2,9 +2,6 @@
 
 #include <type_traits>
 
-#include <cuda/define_specifiers.hpp>
-#include <cuda/runtime_api.hpp>
-
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
@@ -14,6 +11,7 @@
 #include <cub/cub.cuh>
 
 #include <thrustshift/constant.h>
+#include <thrustshift/defines.h>
 #include <thrustshift/math.h>
 #include <thrustshift/not-a-vector.h>
 
@@ -45,12 +43,12 @@ namespace implicit_unroll {
  *  \param select_op lambda to select the values.
  */
 template <typename T, typename It, typename Bool, class F>
-CUDA_FD void select_if_warp_aggregated(T x,
-                                       It selected_values,
-                                       int* selected_values_pos,
-                                       int lane_id,
-                                       Bool valid_write,
-                                       F select_op) {
+THRUSTSHIFT_FD void select_if_warp_aggregated(T x,
+                                              It selected_values,
+                                              int* selected_values_pos,
+                                              int lane_id,
+                                              Bool valid_write,
+                                              F select_op) {
 
 	const bool p = select_op(x) && valid_write;
 
@@ -86,13 +84,13 @@ CUDA_FD void select_if_warp_aggregated(T x,
  *  \param select_op lambda to select the values.
  */
 template <typename It, typename ItResult, typename I0, typename I1, class F>
-CUDA_FD void select_if(It values,
-                       I0 N,
-                       ItResult selected_values,
-                       int* selected_values_pos,
-                       int tid,
-                       I1 num_threads,
-                       F select_op) {
+THRUSTSHIFT_FD void select_if(It values,
+                              I0 N,
+                              ItResult selected_values,
+                              int* selected_values_pos,
+                              int tid,
+                              I1 num_threads,
+                              F select_op) {
 
 	const int num_tiles = thrustshift::ceil_divide(N, num_threads);
 	for (int tile_id = 0; tile_id < num_tiles - 1; ++tile_id) {
@@ -137,7 +135,7 @@ template <class ValuesRange,
           class NumSelectedPtr,
           class SelectOp,
           class MemoryResource>
-void select_if(cuda::stream_t& stream,
+void select_if(cudaStream_t& stream,
                ValuesRange&& values,
                SelectedRange&& selected,
                NumSelectedPtr num_selected_ptr,
@@ -154,14 +152,14 @@ void select_if(cuda::stream_t& stream,
 	using T = typename std::remove_reference<ValuesRange>::type::value_type;
 
 	auto exec = [&] {
-		cuda::throw_if_error(cub::DeviceSelect::If(tmp_ptr,
-		                                           tmp_bytes_size,
-		                                           values.data(),
-		                                           selected.data(),
-		                                           num_selected_ptr,
-		                                           N,
-		                                           select_op,
-		                                           stream.handle()));
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cub::DeviceSelect::If(tmp_ptr,
+		                                                   tmp_bytes_size,
+		                                                   values.data(),
+		                                                   selected.data(),
+		                                                   num_selected_ptr,
+		                                                   N,
+		                                                   select_op,
+		                                                   stream));
 	};
 	exec();
 	auto tmp =
@@ -175,7 +173,7 @@ template <class ValuesIt,
           class NumSelectedPtr,
           class SelectOp,
           class MemoryResource>
-void select_if(cuda::stream_t& stream,
+void select_if(cudaStream_t& stream,
                ValuesIt values,
                SelectedIt selected,
                NumSelectedPtr num_selected_ptr,
@@ -187,14 +185,14 @@ void select_if(cuda::stream_t& stream,
 	void* tmp_ptr = nullptr;
 
 	auto exec = [&] {
-		cuda::throw_if_error(cub::DeviceSelect::If(tmp_ptr,
-		                                           tmp_bytes_size,
-		                                           values,
-		                                           selected,
-		                                           num_selected_ptr,
-		                                           N,
-		                                           select_op,
-		                                           stream.handle()));
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cub::DeviceSelect::If(tmp_ptr,
+		                                                   tmp_bytes_size,
+		                                                   values,
+		                                                   selected,
+		                                                   num_selected_ptr,
+		                                                   N,
+		                                                   select_op,
+		                                                   stream));
 	};
 	exec();
 	auto tmp =
@@ -218,7 +216,7 @@ template <class ValuesRange,
           class NumSelectedPtr,
           class SelectOp,
           class MemoryResource>
-void select_if_with_index(cuda::stream_t& stream,
+void select_if_with_index(cudaStream_t& stream,
                           ValuesRange&& values,
                           SelectedRange&& selected,
                           NumSelectedPtr num_selected_ptr,
@@ -238,14 +236,14 @@ void select_if_with_index(cuda::stream_t& stream,
 	auto it = thrust::make_zip_iterator(thrust::make_tuple(values.data(), cit));
 
 	auto exec = [&] {
-		cuda::throw_if_error(cub::DeviceSelect::If(tmp_ptr,
-		                                           tmp_bytes_size,
-		                                           it,
-		                                           selected.data(),
-		                                           num_selected_ptr,
-		                                           N,
-		                                           select_op,
-		                                           stream.handle()));
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cub::DeviceSelect::If(tmp_ptr,
+		                                                   tmp_bytes_size,
+		                                                   it,
+		                                                   selected.data(),
+		                                                   num_selected_ptr,
+		                                                   N,
+		                                                   select_op,
+		                                                   stream));
 	};
 	exec();
 	auto tmp =
@@ -260,7 +258,7 @@ template <class ValuesRange,
           class NumSelectedPtr,
           class SelectOp,
           class MemoryResource>
-void select_if_with_index(cuda::stream_t& stream,
+void select_if_with_index(cudaStream_t& stream,
                           ValuesRange&& values,
                           SelectedRange&& selected,
                           SelectedIndexRange&& selected_indices,
@@ -283,14 +281,14 @@ void select_if_with_index(cuda::stream_t& stream,
 	    thrust::make_tuple(selected.data(), selected_indices.data()));
 
 	auto exec = [&] {
-		cuda::throw_if_error(cub::DeviceSelect::If(tmp_ptr,
-		                                           tmp_bytes_size,
-		                                           it,
-		                                           result_it,
-		                                           num_selected_ptr,
-		                                           N,
-		                                           select_op,
-		                                           stream.handle()));
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cub::DeviceSelect::If(tmp_ptr,
+		                                                   tmp_bytes_size,
+		                                                   it,
+		                                                   result_it,
+		                                                   num_selected_ptr,
+		                                                   N,
+		                                                   select_op,
+		                                                   stream));
 	};
 	exec();
 	auto tmp =

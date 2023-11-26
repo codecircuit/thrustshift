@@ -1,9 +1,8 @@
 #pragma once
 
-#include <cuda/runtime_api.hpp>
-
 #include <cub/cub.cuh>
 
+#include <thrustshift/defines.h>
 #include <thrustshift/not-a-vector.h>
 
 namespace thrustshift {
@@ -15,7 +14,7 @@ template <class Range,
           class ReductionF,
           class Init,
           class MemoryResource>
-void reduce(cuda::stream_t& stream,
+void reduce(cudaStream_t& stream,
             Range&& values,
             ResultPtr result,
             ReductionF reduction_functor,
@@ -25,7 +24,7 @@ void reduce(cuda::stream_t& stream,
 	size_t tmp_bytes_size = 0;
 	void* tmp_ptr = nullptr;
 	auto exec = [&] {
-		cuda::throw_if_error(
+		THRUSTSHIFT_CHECK_CUDA_ERROR(
 		    cub::DeviceReduce::Reduce(tmp_ptr,
 		                              tmp_bytes_size,
 		                              values.data(),
@@ -33,7 +32,7 @@ void reduce(cuda::stream_t& stream,
 		                              gsl_lite::narrow<int>(values.size()),
 		                              reduction_functor,
 		                              initial_value,
-		                              stream.handle()));
+		                              stream));
 	};
 	exec();
 	auto tmp =
@@ -48,7 +47,7 @@ template <class RangeA,
           class ReductionF,
           class Init,
           class MemoryResource>
-void segmented_reduce(cuda::stream_t& stream,
+void segmented_reduce(cudaStream_t& stream,
                       RangeA&& values,
                       RangeB&& result,
                       RangeC&& segment_ptrs,
@@ -61,7 +60,7 @@ void segmented_reduce(cuda::stream_t& stream,
 	size_t tmp_bytes_size = 0;
 	void* tmp_ptr = nullptr;
 	auto exec = [&] {
-		cuda::throw_if_error(cub::DeviceSegmentedReduce::Reduce(
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cub::DeviceSegmentedReduce::Reduce(
 		    tmp_ptr,
 		    tmp_bytes_size,
 		    values.data(),
@@ -71,7 +70,7 @@ void segmented_reduce(cuda::stream_t& stream,
 		    segment_ptrs.data() + 1,
 		    reduction_functor,
 		    initial_value,
-		    stream.handle()));
+		    stream));
 	};
 	exec();
 	auto tmp =
@@ -86,7 +85,7 @@ template <class ItA,
           class ReductionF,
           class Init,
           class MemoryResource>
-void segmented_reduce(cuda::stream_t& stream,
+void segmented_reduce(cudaStream_t& stream,
                       ItA values,
                       ItB result,
                       ItC segment_ptrs,
@@ -98,7 +97,7 @@ void segmented_reduce(cuda::stream_t& stream,
 	size_t tmp_bytes_size = 0;
 	void* tmp_ptr = nullptr;
 	auto exec = [&] {
-		cuda::throw_if_error(
+		THRUSTSHIFT_CHECK_CUDA_ERROR(
 		    cub::DeviceSegmentedReduce::Reduce(tmp_ptr,
 		                                       tmp_bytes_size,
 		                                       values,
@@ -108,7 +107,7 @@ void segmented_reduce(cuda::stream_t& stream,
 		                                       segment_ptrs + 1,
 		                                       reduction_functor,
 		                                       initial_value,
-		                                       stream.handle()));
+		                                       stream));
 	};
 	exec();
 	auto tmp =

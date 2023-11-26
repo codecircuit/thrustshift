@@ -4,14 +4,13 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/runtime_api.hpp>
-
 #include <cub/cub.cuh>
 
 #include <makeshift/variant.hpp>
 
 #include <thrustshift/constant.h>
 #include <thrustshift/copy.h>
+#include <thrustshift/defines.h>
 #include <thrustshift/fill.h>
 #include <thrustshift/histogram.h>
 #include <thrustshift/math.h>
@@ -32,12 +31,12 @@ namespace implicit_unroll {
  *  \param result of length `N`. As a result you may pass `p`.
  */
 template <typename T0, typename T1, typename I0, typename I1, typename I2>
-CUDA_FD void sum_subsequent_into(const T0* p,
-                                 T1* result,
-                                 int tid,
-                                 I0 num_threads,
-                                 I1 N,
-                                 I2 n) {
+THRUSTSHIFT_FD void sum_subsequent_into(const T0* p,
+                                        T1* result,
+                                        int tid,
+                                        I0 num_threads,
+                                        I1 N,
+                                        I2 n) {
 
 	auto num_columns_per_thread = N / num_threads;
 	auto sum_column = [&](int col_id) {
@@ -71,7 +70,7 @@ namespace explicit_unroll {
  *  \param result of length `N`. As a result you may pass `p`.
  */
 template <typename T, int num_threads, int N, int n>
-CUDA_FD void sum_subsequent_into(const T* p, T* result, int tid) {
+THRUSTSHIFT_FD void sum_subsequent_into(const T* p, T* result, int tid) {
 
 	constexpr int num_columns_per_thread = N / num_threads;
 	auto sum_column = [&](int col_id) {
@@ -119,12 +118,12 @@ CUDA_FD void sum_subsequent_into(const T* p, T* result, int tid) {
  *      histogram.
  */
 template <typename T, typename IH, class F>
-CUDA_FD void bin_value256(T x,
-                          int bit_offset,
-                          uint64_t prefix,
-                          IH* histogram,
-                          bool valid_write,
-                          F bin_index_transform) {
+THRUSTSHIFT_FD void bin_value256(T x,
+                                 int bit_offset,
+                                 uint64_t prefix,
+                                 IH* histogram,
+                                 bool valid_write,
+                                 F bin_index_transform) {
 
 	using I = typename thrustshift::make_uintegral_of_equal_size<T>::type;
 	using K = uint8_t;
@@ -217,7 +216,7 @@ template <typename T,
           typename I5,
           class F0,
           class F1>
-CUDA_FHD void bin_values256(
+THRUSTSHIFT_FHD void bin_values256(
     const T* values,
     I0 N,
     I1* histograms,
@@ -306,7 +305,7 @@ struct k_largest_values_abs_block {
 	};
 
 	template <typename T, typename I0>
-	static CUDA_FD thrust::tuple<uint64_t, int>
+	static THRUSTSHIFT_FD thrust::tuple<uint64_t, int>
 	k_largest_values_abs_radix_block(const T* values,
 	                                 I0 N,
 	                                 IH* uninitialized_histograms,
@@ -437,7 +436,7 @@ struct k_largest_values_abs_block {
 	}
 
 	template <typename It, typename ItSelected, typename I0>
-	static CUDA_FD void select_k_largest_values_with_index_abs(
+	static THRUSTSHIFT_FD void select_k_largest_values_with_index_abs(
 	    It values,
 	    I0 N,
 	    ItSelected selected_values,
@@ -1382,7 +1381,7 @@ __global__ void k_select_radix_from_histogram_with_ptr(IH* histogram,
 namespace async {
 
 template <typename T, class MemoryResource, class F0, class F1>
-void bin_values256(cuda::stream_t& stream,
+void bin_values256(cudaStream_t& stream,
                    gsl_lite::span<const T> values,
                    gsl_lite::span<int> histogram,
                    int bit_offset,
@@ -1399,8 +1398,6 @@ void bin_values256(cuda::stream_t& stream,
 	constexpr int num_histograms = 4 * 68;
 	constexpr int num_sh_histograms = 1;
 
-	auto c = cuda::make_launch_config(num_histograms, block_dim);
-
 	auto tmp_mem = make_not_a_vector<int>(num_histograms * histogram_length,
 	                                      delayed_memory_resource);
 
@@ -1409,34 +1406,25 @@ void bin_values256(cuda::stream_t& stream,
 
 	auto histograms = tmp_mem.to_span();
 
-	cuda::enqueue_launch(kernel::bin_values256<T,
-	                                           block_dim,
-	                                           num_histograms,
-	                                           num_sh_histograms,
-	                                           F0,
-	                                           F1>,
-	                     stream,
-	                     c,
-	                     values.data(),
-	                     values.size(),
-	                     histograms.data(),
-	                     bit_offset,
-	                     prefix,
-	                     unary_functor,
-	                     bin_index_transform);
+	kernel::
+	    bin_values256<T, block_dim, num_histograms, num_sh_histograms, F0, F1>
+	    <<<num_histograms, block_dim, 0, stream>>>(values.data(),
+	                                               values.size(),
+	                                               histograms.data(),
+	                                               bit_offset,
+	                                               prefix,
+	                                               unary_functor,
+	                                               bin_index_transform);
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 
-	cuda::enqueue_launch(kernel::sum_subsequent_into<int,
-	                                                 block_dim,
-	                                                 histogram_length,
-	                                                 num_histograms>,
-	                     stream,
-	                     cuda::make_launch_config(1, 256),
-	                     histograms.data(),
-	                     histogram.data());
+	kernel::
+	    sum_subsequent_into<int, block_dim, histogram_length, num_histograms>
+	    <<<1, 256, 0, stream>>>(histograms.data(), histogram.data());
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 }
 
 template <typename T, class MemoryResource, class F0, class F1>
-void bin_values256(cuda::stream_t& stream,
+void bin_values256(cudaStream_t& stream,
                    gsl_lite::span<const T> values,
                    gsl_lite::span<int> histogram,
                    int bit_offset,
@@ -1464,38 +1452,36 @@ void bin_values256(cuda::stream_t& stream,
 		    auto num_warps = block_dim / warp_size;
 		    gsl_Expects(num_warps % num_sh_histograms == 0);
 		    gsl_Expects(num_warps >= num_sh_histograms);
-		    auto c =
-		        cuda::make_launch_config(int(num_histograms), int(block_dim));
 
 		    auto tmp_mem = make_not_a_vector<int>(
 		        num_histograms * histogram_length, delayed_memory_resource);
 
 		    auto histograms = tmp_mem.to_span();
 
-		    cuda::enqueue_launch(kernel::bin_values256<T,
-		                                               block_dim,
-		                                               num_histograms,
-		                                               num_sh_histograms,
-		                                               F0,
-		                                               F1>,
-		                         stream,
-		                         c,
-		                         values.data(),
-		                         values.size(),
-		                         histograms.data(),
-		                         bit_offset,
-		                         prefix,
-		                         unary_functor,
-		                         bin_index_transform);
+		    kernel::bin_values256<T,
+		                          block_dim,
+		                          num_histograms,
+		                          num_sh_histograms,
+		                          F0,
+		                          F1>
+		        <<<int(num_histograms), int(block_dim), 0, stream>>>(
+		            values.data(),
+		            values.size(),
+		            histograms.data(),
+		            bit_offset,
+		            prefix,
+		            unary_functor,
+		            bin_index_transform);
 
-		    cuda::enqueue_launch(kernel::sum_subsequent_into<int,
-		                                                     block_dim,
-		                                                     histogram_length,
-		                                                     num_histograms>,
-		                         stream,
-		                         cuda::make_launch_config(1, 256),
-		                         histograms.data(),
-		                         histogram.data());
+		    THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
+
+		    kernel::sum_subsequent_into<int,
+		                                block_dim,
+		                                histogram_length,
+		                                num_histograms>
+		        <<<1, 256, 0, stream>>>(histograms.data(), histogram.data());
+
+		    THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 	    },
 	    block_dim_v,
 	    num_histograms_v,
@@ -1503,7 +1489,7 @@ void bin_values256(cuda::stream_t& stream,
 }
 
 template <typename T, class MemoryResource, class F0, class F1>
-void bin_values256_threadfence(cuda::stream_t& stream,
+void bin_values256_threadfence(cudaStream_t& stream,
                                gsl_lite::span<const T> values,
                                gsl_lite::span<int> histogram,
                                int bit_offset,
@@ -1535,32 +1521,29 @@ void bin_values256_threadfence(cuda::stream_t& stream,
 		    auto num_warps = block_dim / warp_size;
 		    gsl_Expects(num_warps % num_sh_histograms == 0);
 		    gsl_Expects(num_warps >= num_sh_histograms);
-		    auto c =
-		        cuda::make_launch_config(int(num_histograms), int(block_dim));
 
 		    auto tmp_mem = make_not_a_vector<int>(
 		        num_histograms * histogram_length, delayed_memory_resource);
 
 		    auto histograms = tmp_mem.to_span();
 
-		    cuda::enqueue_launch(
-		        kernel::bin_values256_threadfence<T,
-		                                          block_dim,
-		                                          num_histograms,
-		                                          num_sh_histograms,
-		                                          F0,
-		                                          F1>,
-		        stream,
-		        c,
-		        values.data(),
-		        values.size(),
-		        histograms.data(),
-		        bit_offset,
-		        prefix,
-		        unary_functor,
-		        bin_index_transform,
-		        tickets.data(),
-		        tickets.data() + 1);
+		    kernel::bin_values256_threadfence<T,
+		                                      block_dim,
+		                                      num_histograms,
+		                                      num_sh_histograms,
+		                                      F0,
+		                                      F1>
+		        <<<int(num_histograms), int(block_dim), 0, stream>>>(
+		            values.data(),
+		            values.size(),
+		            histograms.data(),
+		            bit_offset,
+		            prefix,
+		            unary_functor,
+		            bin_index_transform,
+		            tickets.data(),
+		            tickets.data() + 1);
+		    THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 	    },
 	    block_dim_v,
 	    num_histograms_v,
@@ -1569,7 +1552,7 @@ void bin_values256_threadfence(cuda::stream_t& stream,
 
 template <typename T, class MemoryResource, class F0, class F1>
 void bin_values256_atomic(
-    cuda::stream_t& stream,
+    cudaStream_t& stream,
     gsl_lite::span<const T> values,
     gsl_lite::span<int> histogram,
     int bit_offset,
@@ -1598,23 +1581,23 @@ void bin_values256_atomic(
 		    auto num_warps = block_dim / warp_size;
 		    gsl_Expects(num_warps % num_sh_histograms == 0);
 		    gsl_Expects(num_warps >= num_sh_histograms);
-		    auto c = cuda::make_launch_config(int(grid_dim), int(block_dim));
 
-		    cuda::enqueue_launch(kernel::bin_values256_atomic<T,
-		                                                      block_dim,
-		                                                      grid_dim,
-		                                                      num_sh_histograms,
-		                                                      F0,
-		                                                      F1>,
-		                         stream,
-		                         c,
-		                         values.data(),
-		                         values.size(),
-		                         histogram.data(),
-		                         bit_offset,
-		                         prefix,
-		                         unary_functor,
-		                         bin_index_transform);
+		    kernel::bin_values256_atomic<T,
+		                                 block_dim,
+		                                 grid_dim,
+		                                 num_sh_histograms,
+		                                 F0,
+		                                 F1>
+		        <<<int(grid_dim), int(block_dim), 0, stream>>>(
+		            values.data(),
+		            values.size(),
+		            histogram.data(),
+		            bit_offset,
+		            prefix,
+		            unary_functor,
+		            bin_index_transform);
+
+		    THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 	    },
 	    block_dim_v,
 	    grid_dim_v,
@@ -1623,7 +1606,7 @@ void bin_values256_atomic(
 
 template <typename T, class MemoryResource, class F0, class F1>
 void bin_values256_atomic_with_ptr(
-    cuda::stream_t& stream,
+    cudaStream_t& stream,
     gsl_lite::span<const T> values,
     gsl_lite::span<int> histogram,
     int bit_offset,
@@ -1660,27 +1643,25 @@ void bin_values256_atomic_with_ptr(
 		    auto num_warps = block_dim / warp_size;
 		    gsl_Expects(num_warps % num_sh_histograms == 0);
 		    gsl_Expects(num_warps >= num_sh_histograms);
-		    auto c = cuda::make_launch_config(int(grid_dim), int(block_dim));
 
-		    cuda::enqueue_launch(
-		        kernel::bin_values256_atomic_with_ptr<T,
-		                                              block_dim,
-		                                              grid_dim,
-		                                              num_sh_histograms,
-		                                              use_k0_and_zero_prefix,
-		                                              F0,
-		                                              F1>,
-		        stream,
-		        c,
-		        values.data(),
-		        values.size(),
-		        histogram.data(),
-		        bit_offset,
-		        prefix,
-		        k,
-		        k0,
-		        unary_functor,
-		        bin_index_transform);
+		    kernel::bin_values256_atomic_with_ptr<T,
+		                                          block_dim,
+		                                          grid_dim,
+		                                          num_sh_histograms,
+		                                          use_k0_and_zero_prefix,
+		                                          F0,
+		                                          F1>
+		        <<<int(grid_dim), int(block_dim), 0, stream>>>(
+		            values.data(),
+		            values.size(),
+		            histogram.data(),
+		            bit_offset,
+		            prefix,
+		            k,
+		            k0,
+		            unary_functor,
+		            bin_index_transform);
+		    THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 	    },
 	    block_dim_v,
 	    grid_dim_v,
@@ -1692,7 +1673,7 @@ void bin_values256_atomic_with_ptr(
 
 template <typename T, class MemoryResource>
 std::tuple<uint64_t, int> k_largest_values_abs_radix(
-    cuda::stream_t& stream,
+    cudaStream_t& stream,
     gsl_lite::span<const T> values,
     int k,
     MemoryResource& delayed_memory_resource) {
@@ -1735,7 +1716,7 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix(
 		    unary_functor,
 		    bin_index_transform,
 		    delayed_memory_resource);
-		stream.synchronize();
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 		int acc = histogram[histogram_length - 1];
 		int acc_prev = 0;
 		for (int i = histogram_length - 2; i >= 0; --i) {
@@ -1757,7 +1738,7 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix(
 
 template <typename T, class MemoryResource>
 std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic(
-    cuda::stream_t& stream,
+    cudaStream_t& stream,
     gsl_lite::span<const T> values,
     int k,
     MemoryResource& delayed_memory_resource) {
@@ -1802,7 +1783,7 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic(
 		    unary_functor,
 		    bin_index_transform,
 		    delayed_memory_resource);
-		stream.synchronize();
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 		int acc = histogram[histogram_length - 1];
 		int acc_prev = 0;
 		for (int i = histogram_length - 2; i >= 0; --i) {
@@ -1838,7 +1819,7 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic(
 	// 	    unary_functor,
 	// 	    bin_index_transform,
 	// 	    delayed_memory_resource);
-	// 	stream.synchronize();
+	// 	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 	// 	// int acc = histogram[histogram_length - 1];
 	// 	// int acc_prev = 0;
 	// 	// for (int i = histogram_length - 2; i >= 0; --i) {
@@ -1861,7 +1842,7 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic(
 
 template <typename T, class MemoryResource>
 std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic_devicehisto(
-    cuda::stream_t& stream,
+    cudaStream_t& stream,
     gsl_lite::span<const T> values,
     int k,
     MemoryResource& delayed_memory_resource) {
@@ -1901,14 +1882,11 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic_devicehisto(
 		    bin_index_transform,
 		    delayed_memory_resource);
 
-		cuda::enqueue_launch(kernel::k_select_radix_from_histogram<IH, 256>,
-		                     stream,
-		                     cuda::make_launch_config(1, 256),
-		                     histogram.data(),
-		                     bit_offset,
-		                     prefix_s.data(),
-		                     k_s.data());
-		stream.synchronize();
+		kernel::k_select_radix_from_histogram<IH, 256><<<1, 256, 0, stream>>>(
+		    histogram.data(), bit_offset, prefix_s.data(), k_s.data());
+
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 		prefix = (prefix << 8) | prefix_s[0];
 		k = k_s[0];
 		if (k <= 0) {
@@ -1941,7 +1919,7 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic_devicehisto(
 	// 	                     bit_offset,
 	// 	                     prefix_s.data(),
 	// 	                     k_s.data());
-	// 	// stream.synchronize();
+	// 	// THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 	// 	// prefix = (prefix << 8) | prefix_s[0];
 	// 	// k = k_s[0];
 	// 	// if (k <= 0) {
@@ -1956,7 +1934,7 @@ namespace async {
 
 template <typename T, class MemoryResource>
 void k_largest_values_abs_radix_atomic_devicehisto_with_ptr(
-    cuda::stream_t& stream,
+    cudaStream_t& stream,
     gsl_lite::span<const T> values,
     uint64_t* prefix, // only output
     int* bit_offset, //only output
@@ -2004,16 +1982,13 @@ void k_largest_values_abs_radix_atomic_devicehisto_with_ptr(
 		                                MAKESHIFT_CONSTVAL(std::array{0, 1}));
 		std::visit(
 		    [&](auto flag) {
-			    cuda::enqueue_launch(
-			        kernel::
-			            k_select_radix_from_histogram_with_ptr<IH, 256, flag>,
-			        stream,
-			        cuda::make_launch_config(1, 256),
-			        histogram.data(),
-			        bit_offset_s.data(),
-			        prefix_s.data(),
-			        k_s.data(),
-			        k);
+			    kernel::k_select_radix_from_histogram_with_ptr<IH, 256, flag>
+			        <<<1, 256, 0, stream>>>(histogram.data(),
+			                                bit_offset_s.data(),
+			                                prefix_s.data(),
+			                                k_s.data(),
+			                                k);
+			    THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 		    },
 		    flag_v);
 	}
@@ -2023,7 +1998,7 @@ void k_largest_values_abs_radix_atomic_devicehisto_with_ptr(
 
 template <typename T, class MemoryResource>
 std::tuple<uint64_t, int> k_largest_values_abs_radix_with_cub(
-    cuda::stream_t& stream,
+    cudaStream_t& stream,
     gsl_lite::span<const T> values,
     int k,
     MemoryResource& delayed_memory_resource) {
@@ -2060,7 +2035,7 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_with_cub(
 		                                 upper_level,
 		                                 N,
 		                                 delayed_memory_resource);
-		stream.synchronize();
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 		int acc = histogram[histogram_length - 1];
 		int acc_prev = 0;
 		for (int i = histogram_length - 2; i >= 0; --i) {
@@ -2084,7 +2059,7 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_with_cub(
 
 // selected_values.size() == values.size() because CUB might select more values, if e.g. values are all equal
 template <typename T, class MemoryResource>
-void select_k_largest_values_abs(cuda::stream_t& stream,
+void select_k_largest_values_abs(cudaStream_t& stream,
                                  gsl_lite::span<const T> values,
                                  gsl_lite::span<T> selected_values,
                                  gsl_lite::span<int> selected_indices,
@@ -2113,12 +2088,12 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 	                            num_selected.data(),
 	                            select_op,
 	                            delayed_memory_resource);
-	stream.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 }
 
 template <typename T, class MemoryResource>
 void select_k_largest_values_abs_atomic(
-    cuda::stream_t& stream,
+    cudaStream_t& stream,
     gsl_lite::span<const T> values,
     gsl_lite::span<T> selected_values,
     gsl_lite::span<int> selected_indices,
@@ -2147,13 +2122,13 @@ void select_k_largest_values_abs_atomic(
 	                            num_selected.data(),
 	                            select_op,
 	                            delayed_memory_resource);
-	stream.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 }
 
 // selected_values.size() == values.size() because CUB might select more values, if e.g. values are all equal
 template <typename T, class MemoryResource>
 void select_k_largest_values_abs_with_cub(
-    cuda::stream_t& stream,
+    cudaStream_t& stream,
     gsl_lite::span<const T> values,
     gsl_lite::span<T> selected_values,
     gsl_lite::span<int> selected_indices,
@@ -2182,13 +2157,13 @@ void select_k_largest_values_abs_with_cub(
 	                            num_selected.data(),
 	                            select_op,
 	                            delayed_memory_resource);
-	stream.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 }
 
 namespace cooperative {
 
 template <typename T, class MemoryResource>
-void select_k_largest_values_abs(cuda::stream_t& stream,
+void select_k_largest_values_abs(cudaStream_t& stream,
                                  gsl_lite::span<const T> values,
                                  gsl_lite::span<T> selected_values,
                                  gsl_lite::span<int> selected_indices,
@@ -2212,23 +2187,31 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 	auto k_s = tmp.to_span().subspan(2, 1);
 	k_s[0] = k;
 
-	auto c = cuda::make_launch_config(grid_dim, block_dim);
-	c.block_cooperation = true;
-
 	const int N = values.size();
 
-	cuda::enqueue_launch(
-	    kernel::
+	auto values_data = values.data();
+	auto histograms_data = histograms.data();
+	auto bit_offset_s_data = bit_offset_s.data();
+	auto prefix_s_data = prefix_s.data();
+	auto k_s_data = k_s.data();
+
+	void* args[] = {(void*) &values_data,
+	                (void*) &N,
+	                (void*) &histograms_data,
+	                (void*) &bit_offset_s_data,
+	                (void*) &prefix_s_data,
+	                (void*) &k_s_data};
+
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaLaunchCooperativeKernel(
+	    (void*) kernel::
 	        k_select_radix<T, unsigned, block_dim, grid_dim, num_sh_histograms>,
-	    stream,
-	    c,
-	    values.data(),
-	    N,
-	    histograms.data(),
-	    bit_offset_s.data(),
-	    prefix_s.data(),
-	    k_s.data());
-	stream.synchronize();
+	    grid_dim,
+	    block_dim,
+	    args,
+	    0,
+	    stream));
+
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 
 	const auto prefix = prefix_s[0];
 	const auto bit_offset = bit_offset_s[0];
@@ -2248,11 +2231,11 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 	                            num_selected.data(),
 	                            select_op,
 	                            delayed_memory_resource);
-	stream.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 }
 
 template <typename T, class MemoryResource>
-void select_k_largest_values_abs2(cuda::stream_t& stream,
+void select_k_largest_values_abs2(cudaStream_t& stream,
                                   gsl_lite::span<const T> values,
                                   gsl_lite::span<T> selected_values,
                                   gsl_lite::span<int> selected_indices,
@@ -2276,24 +2259,45 @@ void select_k_largest_values_abs2(cuda::stream_t& stream,
 	auto k_s = tmp.to_span().subspan(2, 1);
 	k_s[0] = k;
 
-	auto c = cuda::make_launch_config(grid_dim, block_dim);
-	c.block_cooperation = true;
 	const int N = values.size();
 
-	cuda::enqueue_launch(kernel::k_select_radix2<T,
-	                                             unsigned,
-	                                             block_dim,
-	                                             grid_dim,
-	                                             num_sh_histograms>,
-	                     stream,
-	                     c,
-	                     values.data(),
-	                     N,
-	                     histograms.data(),
-	                     bit_offset_s.data(),
-	                     prefix_s.data(),
-	                     k);
-	stream.synchronize();
+	auto values_data = values.data();
+	auto histograms_data = histograms.data();
+	auto bit_offset_s_data = bit_offset_s.data();
+	auto prefix_s_data = prefix_s.data();
+
+	void* args[] = {(void*) &values_data,
+	                (void*) &N,
+	                (void*) &histograms_data,
+	                (void*) &bit_offset_s_data,
+	                (void*) &prefix_s_data,
+	                (void*) &k};
+
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaLaunchCooperativeKernel(
+	    (void*) kernel::k_select_radix2<T,
+	                                    unsigned,
+	                                    block_dim,
+	                                    grid_dim,
+	                                    num_sh_histograms>,
+	    grid_dim,
+	    block_dim,
+	    args,
+	    0,
+	    stream));
+
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaLaunchCooperativeKernel(
+	    (void*) kernel::k_select_radix2<T,
+	                                    unsigned,
+	                                    block_dim,
+	                                    grid_dim,
+	                                    num_sh_histograms>,
+	    grid_dim,
+	    block_dim,
+	    args,
+	    0,
+	    stream));
+
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 
 	const auto prefix = prefix_s[0];
 	const auto bit_offset = bit_offset_s[0];
@@ -2313,7 +2317,7 @@ void select_k_largest_values_abs2(cuda::stream_t& stream,
 	                            num_selected.data(),
 	                            select_op,
 	                            delayed_memory_resource);
-	stream.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 }
 
 } // namespace cooperative
@@ -2322,7 +2326,7 @@ namespace dynamic_parallelism {
 
 template <typename T, class MemoryResource>
 std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic_binning(
-    cuda::stream_t& stream,
+    cudaStream_t& stream,
     gsl_lite::span<const T> values,
     int k,
     bool nosync,
@@ -2343,27 +2347,23 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic_binning(
 	auto prefix_s = tmp1.to_span();
 	auto histogram = tmp2.to_span();
 
-	auto c = cuda::make_launch_config(1, block_dim);
 	const int N = values.size();
 
-	cuda::enqueue_launch(
-	    kernel::k_select_radix_dynamic_parallelism_atomic_binning<
-	        T,
-	        IH,
-	        block_dim,
-	        num_sh_histograms,
-	        child_grid_dim>,
-	    stream,
-	    c,
-	    values.data(),
-	    N,
-	    histogram.data(),
-	    bit_offset_s.data(),
-	    prefix_s.data(),
-	    k);
+	kernel::k_select_radix_dynamic_parallelism_atomic_binning<T,
+	                                                          IH,
+	                                                          block_dim,
+	                                                          num_sh_histograms,
+	                                                          child_grid_dim>
+	    <<<1, block_dim, 0, stream>>>(values.data(),
+	                                  N,
+	                                  histogram.data(),
+	                                  bit_offset_s.data(),
+	                                  prefix_s.data(),
+	                                  k);
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 	// Alternatively give CUB select if a lambda, which accesses the values, which are already on the GPU
 	if (!nosync) {
-		stream.synchronize();
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 		return {prefix_s[0], bit_offset_s[0]};
 	}
 	else {
@@ -2372,7 +2372,7 @@ std::tuple<uint64_t, int> k_largest_values_abs_radix_atomic_binning(
 }
 
 template <typename T, class MemoryResource>
-void select_k_largest_values_abs(cuda::stream_t& stream,
+void select_k_largest_values_abs(cudaStream_t& stream,
                                  gsl_lite::span<const T> values,
                                  gsl_lite::span<T> selected_values,
                                  gsl_lite::span<int> selected_indices,
@@ -2397,24 +2397,22 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 	// auto k_s = tmp.to_span().subspan(2, 1);
 	// k_s[0] = k;
 
-	auto c = cuda::make_launch_config(1, block_dim);
 	const int N = values.size();
 
-	cuda::enqueue_launch(
-	    kernel::k_select_radix_dynamic_parallelism<T,
-	                                               IH,
-	                                               block_dim,
-	                                               num_sh_histograms,
-	                                               num_gl_histograms>,
-	    stream,
-	    c,
-	    values.data(),
-	    N,
-	    histograms.data(),
-	    bit_offset_s.data(),
-	    prefix_s.data(),
-	    k);
-	stream.synchronize();
+	kernel::k_select_radix_dynamic_parallelism<T,
+	                                           IH,
+	                                           block_dim,
+	                                           num_sh_histograms,
+	                                           num_gl_histograms>
+	    <<<1, block_dim, 0, stream>>>(values.data(),
+	                                  N,
+	                                  histograms.data(),
+	                                  bit_offset_s.data(),
+	                                  prefix_s.data(),
+	                                  k);
+
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 
 	const auto prefix = prefix_s[0];
 	const auto bit_offset = bit_offset_s[0];
@@ -2434,7 +2432,7 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 	                            num_selected.data(),
 	                            select_op,
 	                            delayed_memory_resource);
-	stream.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 }
 
 } // namespace dynamic_parallelism
@@ -2442,7 +2440,7 @@ void select_k_largest_values_abs(cuda::stream_t& stream,
 namespace async {
 
 template <typename T, class MemoryResource>
-void select_k_largest_values_abs(cuda::stream_t& stream,
+void select_k_largest_values_abs(cudaStream_t& stream,
                                  gsl_lite::span<const T> values,
                                  gsl_lite::span<T> selected_values,
                                  gsl_lite::span<int> selected_indices,

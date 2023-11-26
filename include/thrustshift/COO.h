@@ -14,9 +14,8 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/define_specifiers.hpp>
-
 #include <thrustshift/copy.h>
+#include <thrustshift/defines.h>
 #include <thrustshift/equal.h>
 #include <thrustshift/managed-vector.h>
 #include <thrustshift/math.h>
@@ -315,35 +314,35 @@ class COO_view {
 
 	COO_view(const COO_view& other) = default;
 
-	CUDA_FHD gsl_lite::span<DataType> values() {
+	THRUSTSHIFT_FHD gsl_lite::span<DataType> values() {
 		return values_;
 	}
 
-	CUDA_FHD gsl_lite::span<const DataType> values() const {
+	THRUSTSHIFT_FHD gsl_lite::span<const DataType> values() const {
 		return values_;
 	}
 
-	CUDA_FHD gsl_lite::span<IndexType> row_indices() {
+	THRUSTSHIFT_FHD gsl_lite::span<IndexType> row_indices() {
 		return row_indices_;
 	}
 
-	CUDA_FHD gsl_lite::span<const IndexType> row_indices() const {
+	THRUSTSHIFT_FHD gsl_lite::span<const IndexType> row_indices() const {
 		return row_indices_;
 	}
 
-	CUDA_FHD gsl_lite::span<IndexType> col_indices() {
+	THRUSTSHIFT_FHD gsl_lite::span<IndexType> col_indices() {
 		return col_indices_;
 	}
 
-	CUDA_FHD gsl_lite::span<const IndexType> col_indices() const {
+	THRUSTSHIFT_FHD gsl_lite::span<const IndexType> col_indices() const {
 		return col_indices_;
 	}
 
-	CUDA_FHD size_t num_rows() const {
+	THRUSTSHIFT_FHD size_t num_rows() const {
 		return num_rows_;
 	}
 
-	CUDA_FHD size_t num_cols() const {
+	THRUSTSHIFT_FHD size_t num_cols() const {
 		return num_cols_;
 	}
 
@@ -377,7 +376,7 @@ namespace async {
 //! Calculate the product `result_coo_mtx = (diag_mtx * coo_mtx)`
 //! result_coo_mtx can be equal to coo_mtx. Then the multiplication is in place.
 template <class Range, class COO_C0, class COO_C1>
-void diagmm(cuda::stream_t& stream,
+void diagmm(cudaStream_t& stream,
             Range&& diag_mtx,
             COO_C0&& coo_mtx,
             COO_C1&& result_coo_mtx) {
@@ -396,14 +395,11 @@ void diagmm(cuda::stream_t& stream,
 	using COO_I1 = typename std::remove_reference<COO_C1>::type::index_type;
 
 	const auto nnz = coo_mtx.values().size();
-	constexpr cuda::grid::block_dimension_t block_dim = 128;
-	const cuda::grid::dimension_t grid_dim = ceil_divide(nnz, block_dim);
-	cuda::enqueue_launch(kernel::diagmm<RangeT, COO_T0, COO_I0, COO_T1, COO_I1>,
-	                     stream,
-	                     cuda::make_launch_config(grid_dim, block_dim),
-	                     diag_mtx,
-	                     coo_mtx,
-	                     result_coo_mtx);
+	constexpr unsigned block_dim = 128;
+	const unsigned grid_dim = ceil_divide(nnz, block_dim);
+	kernel::diagmm<RangeT, COO_T0, COO_I0, COO_T1, COO_I1>
+	    <<<grid_dim, block_dim, 0, stream>>>(diag_mtx, coo_mtx, result_coo_mtx);
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 }
 
 } // namespace async
@@ -446,43 +442,37 @@ __global__ void fill_diagonal(COO_view<T0, const I> mtx, T1 value) {
 namespace async {
 
 template <typename T, class COO>
-void get_diagonal(cuda::stream_t& stream, COO&& mtx, gsl_lite::span<T> diag) {
+void get_diagonal(cudaStream_t& stream, COO&& mtx, gsl_lite::span<T> diag) {
 
 	gsl_Expects(diag.size() == std::min(mtx.num_rows(), mtx.num_cols()));
 	using I = typename std::remove_reference<COO>::type::index_type;
 	using T0 = typename std::remove_reference<COO>::type::value_type;
 	const auto nnz = mtx.values().size();
-	constexpr cuda::grid::block_dimension_t block_dim = 128;
-	const cuda::grid::dimension_t grid_dim =
-	    ceil_divide(gsl_lite::narrow<cuda::grid::dimension_t>(nnz),
-	                gsl_lite::narrow<cuda::grid::dimension_t>(block_dim));
+	constexpr unsigned block_dim = 128;
+	const unsigned grid_dim = ceil_divide(
+	    gsl_lite::narrow<unsigned>(nnz), gsl_lite::narrow<unsigned>(block_dim));
 	fill(stream, diag, 0);
 	COO_view<const T0, const I> mtx_view(mtx);
 	if (nnz != 0) {
-		cuda::enqueue_launch(kernel::get_diagonal<T0, I, T>,
-		                     stream,
-		                     cuda::make_launch_config(grid_dim, block_dim),
-		                     mtx_view,
-		                     diag);
+		kernel::get_diagonal<T0, I, T>
+		    <<<grid_dim, block_dim, 0, stream>>>(mtx_view, diag);
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 	}
 }
 
 template <typename T, class COO>
-void fill_diagonal(cuda::stream_t& stream, COO&& mtx, T value) {
+void fill_diagonal(cudaStream_t& stream, COO&& mtx, T value) {
 
 	using I = typename std::remove_reference<COO>::type::index_type;
 	using T0 = typename std::remove_reference<COO>::type::value_type;
 	const auto nnz = mtx.values().size();
-	constexpr cuda::grid::block_dimension_t block_dim = 128;
-	const cuda::grid::dimension_t grid_dim =
-	    ceil_divide(gsl_lite::narrow<cuda::grid::dimension_t>(nnz),
-	                gsl_lite::narrow<cuda::grid::dimension_t>(block_dim));
+	constexpr unsigned block_dim = 128;
+	const unsigned grid_dim = ceil_divide(
+	    gsl_lite::narrow<unsigned>(nnz), gsl_lite::narrow<unsigned>(block_dim));
 	if (nnz != 0) {
-		cuda::enqueue_launch(kernel::fill_diagonal<T0, I, T>,
-		                     stream,
-		                     cuda::make_launch_config(grid_dim, block_dim),
-		                     mtx,
-		                     value);
+		kernel::fill_diagonal<T0, I, T>
+		    <<<grid_dim, block_dim, 0, stream>>>(mtx, value);
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 	}
 }
 
@@ -534,15 +524,14 @@ thrustshift::COO<DataType, IndexType> transform(
 		auto row_indices_b_ptr = b.row_indices().data();
 		auto col_indices_b_ptr = b.col_indices().data();
 
-		auto device = cuda::device::current::get();
-		auto stream = device.default_stream();
+		cudaStream_t stream = 0;
 
 		async::transform(stream, a.values(), values.first(nnz_a), op_a);
 		auto cit = thrust::make_counting_iterator(IndexType(0));
 		//
 		// Pack
 		//
-		thrust::for_each(thrust::cuda::par.on(stream.handle()),
+		thrust::for_each(thrust::cuda::par.on(stream),
 		                 cit,
 		                 cit + nnz_a,
 		                 [row_and_col_indices_ptr,
@@ -554,7 +543,7 @@ thrustshift::COO<DataType, IndexType> transform(
 			                 const uint64_t k = fst + snd;
 			                 row_and_col_indices_ptr[i] = k;
 		                 });
-		thrust::for_each(thrust::cuda::par.on(stream.handle()),
+		thrust::for_each(thrust::cuda::par.on(stream),
 		                 cit,
 		                 cit + nnz_b,
 		                 [row_and_col_indices_ptr,
@@ -613,7 +602,7 @@ thrustshift::COO<DataType, IndexType> transform(
 		auto result_row_indices_ptr = result.row_indices().data();
 		auto result_col_indices_ptr = result.col_indices().data();
 		thrust::for_each(
-		    thrust::cuda::par.on(stream.handle()),
+		    thrust::cuda::par.on(stream),
 		    cit,
 		    cit + nnz_result,
 		    [keys_result_begin,
@@ -636,8 +625,7 @@ thrustshift::COO<DataType, IndexType> transform(
 		auto [tmp2, col_indices] = make_not_a_vector_and_span<IndexType>(
 		    nnz_a + nnz_b, memory_resource);
 
-		auto device = cuda::device::current::get();
-		auto stream = device.default_stream();
+		cudaStream_t stream = 0;
 
 		async::transform(stream, a.values(), values.first(nnz_a), op_a);
 		async::copy(stream, a.row_indices(), row_indices.first(nnz_a));
@@ -731,8 +719,7 @@ transform2(thrustshift::COO_view<const DataType, const IndexType> a,
 		auto row_indices_b_ptr = b.row_indices().data();
 		auto col_indices_b_ptr = b.col_indices().data();
 
-		auto device = cuda::device::current::get();
-		auto stream = device.default_stream();
+		cudaStream_t stream = 0;
 
 		async::transform(stream, a.values(), values0.first(nnz_a), op_a0);
 		async::transform(stream, b.values(), values0.subspan(nnz_a), op_b0);
@@ -743,7 +730,7 @@ transform2(thrustshift::COO_view<const DataType, const IndexType> a,
 		//
 		// Pack
 		//
-		thrust::for_each(thrust::cuda::par.on(stream.handle()),
+		thrust::for_each(thrust::cuda::par.on(stream),
 		                 cit,
 		                 cit + nnz_a,
 		                 [row_and_col_indices_ptr,
@@ -755,7 +742,7 @@ transform2(thrustshift::COO_view<const DataType, const IndexType> a,
 			                 const uint64_t k = fst + snd;
 			                 row_and_col_indices_ptr[i] = k;
 		                 });
-		thrust::for_each(thrust::cuda::par.on(stream.handle()),
+		thrust::for_each(thrust::cuda::par.on(stream),
 		                 cit,
 		                 cit + nnz_b,
 		                 [row_and_col_indices_ptr,
@@ -833,7 +820,7 @@ transform2(thrustshift::COO_view<const DataType, const IndexType> a,
 		auto result_row_indices_ptr = result.row_indices().data();
 		auto result_col_indices_ptr = result.col_indices().data();
 		thrust::for_each(
-		    thrust::cuda::par.on(stream.handle()),
+		    thrust::cuda::par.on(stream),
 		    cit,
 		    cit + nnz_result,
 		    [keys_result_begin,

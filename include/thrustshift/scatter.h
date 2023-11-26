@@ -2,7 +2,6 @@
 
 #include <type_traits>
 
-#include <cuda/runtime_api.hpp>
 #include <gsl-lite/gsl-lite.hpp>
 
 namespace thrustshift {
@@ -25,7 +24,7 @@ __global__ void scatter(gsl_lite::span<const SrcT> src,
 namespace async {
 
 template <class SrcRange, class MapRange, class DstRange>
-void scatter(cuda::stream_t& stream,
+void scatter(cudaStream_t& stream,
              SrcRange&& src,
              MapRange&& map,
              DstRange&& dst) {
@@ -44,12 +43,10 @@ void scatter(cuda::stream_t& stream,
 	using dst_value_type =
 	    typename std::remove_reference<DstRange>::type::value_type;
 
-	constexpr cuda::grid::block_dimension_t block_dim = 128;
-	const cuda::grid::dimension_t grid_dim =
-	    (src.size() + block_dim - 1) / block_dim;
-	auto c = cuda::make_launch_config(grid_dim, block_dim);
-	auto k = kernel::scatter<src_value_type, map_index_type, dst_value_type>;
-	cuda::enqueue_launch(k, stream, c, src, map, dst);
+	constexpr unsigned block_dim = 128;
+	const unsigned grid_dim = (src.size() + block_dim - 1) / block_dim;
+	kernel::scatter<src_value_type, map_index_type, dst_value_type>
+	    <<<grid_dim, block_dim, 0, stream>>>(src, map, dst);
 }
 
 } // namespace async

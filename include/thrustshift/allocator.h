@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cuda/runtime_api.hpp>
+#include <thrustshift/defines.h>
 
 namespace thrustshift {
 
@@ -18,17 +18,16 @@ class managed_allocator {
 
 	value_type* allocate(std::size_t n) {
 
-		auto device = cuda::device::current::get();
 		const size_t bytes = n * sizeof(T);
-		auto region = cuda::memory::managed::allocate(device, bytes);
-		auto mem = region.get();
-		if (mem == nullptr)
+		void* p = nullptr;
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaMallocManaged(&p, bytes));
+		if (p == nullptr)
 			throw std::bad_alloc{};
-		return static_cast<value_type*>(mem);
+		return reinterpret_cast<value_type*>(p);
 	}
 
 	void deallocate(value_type* p, std::size_t) noexcept {
-		cuda::memory::managed::free(p);
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cudaFree(p));
 	}
 };
 

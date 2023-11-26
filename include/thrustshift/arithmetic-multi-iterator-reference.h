@@ -4,11 +4,10 @@
 #include <type_traits>
 #include <utility>
 
-#include <cuda/define_specifiers.hpp>
-
 #include <thrust/tuple.h>
 
 #include <thrustshift/container-conversion.h>
+#include <thrustshift/defines.h>
 #include <thrustshift/for-each.h>
 #include <thrustshift/functional.h>
 #include <thrustshift/multi-iterator.h>
@@ -42,7 +41,7 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 	    typename make_thrust_tuple_type<value_type, N>::type;
 
 	template <class OtherTuple>
-	CUDA_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
+	THRUSTSHIFT_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
 	operator=(OtherTuple&& other) {
 		using std::get;
 		using other_value_type =
@@ -58,12 +57,12 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 	// Note: that can be tuples with references **or** normal tuples with values
 	//
 	template <class T>
-	CUDA_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
+	THRUSTSHIFT_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
 	operator+=(T&& t) {
 		if constexpr (std::is_convertible<typename std::decay<T>::type,
 		                                  value_type>::value) {
 			tuple::for_each(static_cast<parent_t&>(*this),
-			                [t] CUDA_HD(reference_type x) { x += t; });
+			                [t] THRUSTSHIFT_HD(reference_type x) { x += t; });
 		}
 		else {
 			// for types which are convertible to `tuple_value_type`
@@ -79,12 +78,12 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 	}
 
 	template <class T>
-	CUDA_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
+	THRUSTSHIFT_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
 	operator-=(T&& t) {
 		if constexpr (std::is_convertible<typename std::decay<T>::type,
 		                                  value_type>::value) {
 			tuple::for_each(static_cast<parent_t&>(*this),
-			                [t] CUDA_HD(reference_type x) { x -= t; });
+			                [t] THRUSTSHIFT_HD(reference_type x) { x -= t; });
 		}
 		else {
 			// for types which are convertible to `tuple_value_type`
@@ -100,7 +99,7 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 	}
 
 	template <class T>
-	CUDA_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
+	THRUSTSHIFT_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
 	operator*=(T&& t) {
 
 		// Alternatively to a `if constexpr` it should be possible to use
@@ -108,7 +107,7 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 		if constexpr (std::is_convertible<typename std::decay<T>::type,
 		                                  value_type>::value) {
 			tuple::for_each(static_cast<parent_t&>(*this),
-			                [t] CUDA_HD(reference_type x) { x *= t; });
+			                [t] THRUSTSHIFT_HD(reference_type x) { x *= t; });
 		}
 		else {
 			// for types which are convertible to `tuple_value_type`
@@ -124,12 +123,12 @@ class arithmetic_multi_iterator_reference_base : public Parent {
 	}
 
 	template <class T>
-	CUDA_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
+	THRUSTSHIFT_FHD arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
 	operator/=(T&& t) {
 		if constexpr (std::is_convertible<typename std::decay<T>::type,
 		                                  value_type>::value) {
 			tuple::for_each(static_cast<parent_t&>(*this),
-			                [t] CUDA_HD(reference_type x) { x /= t; });
+			                [t] THRUSTSHIFT_HD(reference_type x) { x /= t; });
 		}
 		else {
 			// for types which are convertible to `tuple_value_type`
@@ -173,7 +172,7 @@ class arithmetic_tuple
 // FREE OPERATORS FOR THE BASE CLASS WITH TUPLES +,-,*,/
 //
 template <class RefA, class RefB, class ParentA, class ParentB, std::size_t N>
-CUDA_FHD auto operator+(
+THRUSTSHIFT_FHD auto operator+(
     const detail::arithmetic_multi_iterator_reference_base<RefA, N, ParentA>& a,
     const detail::arithmetic_multi_iterator_reference_base<RefB, N, ParentB>&
         b) {
@@ -191,7 +190,7 @@ CUDA_FHD auto operator+(
 }
 
 template <class RefA, class RefB, class ParentA, class ParentB, std::size_t N>
-CUDA_FHD auto operator-(
+THRUSTSHIFT_FHD auto operator-(
     const detail::arithmetic_multi_iterator_reference_base<RefA, N, ParentA>& a,
     const detail::arithmetic_multi_iterator_reference_base<RefB, N, ParentB>&
         b) {
@@ -209,7 +208,7 @@ CUDA_FHD auto operator-(
 }
 
 template <class RefA, class RefB, class ParentA, class ParentB, std::size_t N>
-CUDA_FHD auto operator*(
+THRUSTSHIFT_FHD auto operator*(
     const detail::arithmetic_multi_iterator_reference_base<RefA, N, ParentA>& a,
     const detail::arithmetic_multi_iterator_reference_base<RefB, N, ParentB>&
         b) {
@@ -227,7 +226,7 @@ CUDA_FHD auto operator*(
 }
 
 template <class RefA, class RefB, class ParentA, class ParentB, std::size_t N>
-CUDA_FHD auto operator/(
+THRUSTSHIFT_FHD auto operator/(
     const detail::arithmetic_multi_iterator_reference_base<RefA, N, ParentA>& a,
     const detail::arithmetic_multi_iterator_reference_base<RefB, N, ParentB>&
         b) {
@@ -248,32 +247,36 @@ CUDA_FHD auto operator/(
 // FREE OPERATORS FOR THE ARITHMETIC TUPLE CLASS +,-,*,/
 //
 template <typename T, std::size_t N>
-CUDA_FHD arithmetic_tuple<T, N> operator+(const arithmetic_tuple<T, N>& a,
-                                          const arithmetic_tuple<T, N>& b) {
+THRUSTSHIFT_FHD arithmetic_tuple<T, N> operator+(
+    const arithmetic_tuple<T, N>& a,
+    const arithmetic_tuple<T, N>& b) {
 	arithmetic_tuple<T, N> result{a};
 	result += b;
 	return result;
 }
 
 template <typename T, std::size_t N>
-CUDA_FHD arithmetic_tuple<T, N> operator-(const arithmetic_tuple<T, N>& a,
-                                          const arithmetic_tuple<T, N>& b) {
+THRUSTSHIFT_FHD arithmetic_tuple<T, N> operator-(
+    const arithmetic_tuple<T, N>& a,
+    const arithmetic_tuple<T, N>& b) {
 	arithmetic_tuple<T, N> result{a};
 	result -= b;
 	return result;
 }
 
 template <typename T, std::size_t N>
-CUDA_FHD arithmetic_tuple<T, N> operator*(const arithmetic_tuple<T, N>& a,
-                                          const arithmetic_tuple<T, N>& b) {
+THRUSTSHIFT_FHD arithmetic_tuple<T, N> operator*(
+    const arithmetic_tuple<T, N>& a,
+    const arithmetic_tuple<T, N>& b) {
 	arithmetic_tuple<T, N> result{a};
 	result *= b;
 	return result;
 }
 
 template <typename T, std::size_t N>
-CUDA_FHD arithmetic_tuple<T, N> operator/(const arithmetic_tuple<T, N>& a,
-                                          const arithmetic_tuple<T, N>& b) {
+THRUSTSHIFT_FHD arithmetic_tuple<T, N> operator/(
+    const arithmetic_tuple<T, N>& a,
+    const arithmetic_tuple<T, N>& b) {
 	arithmetic_tuple<T, N> result{a};
 	result /= b;
 	return result;
@@ -299,7 +302,7 @@ template <class Ref,
                       arithmetic_multi_iterator_reference_base<Ref, N, Parent>::
                           value_type>::value,
               bool> = true>
-CUDA_FHD auto operator+(
+THRUSTSHIFT_FHD auto operator+(
     const detail::arithmetic_multi_iterator_reference_base<Ref, N, Parent>& tup,
     const Scalar& scalar) {
 	using T = typename detail::
@@ -320,7 +323,7 @@ template <class Ref,
                       arithmetic_multi_iterator_reference_base<Ref, N, Parent>::
                           value_type>::value,
               bool> = true>
-CUDA_FHD auto operator+(
+THRUSTSHIFT_FHD auto operator+(
     const Scalar& scalar,
     const detail::arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
         tup) {
@@ -346,7 +349,7 @@ template <class Ref,
                       arithmetic_multi_iterator_reference_base<Ref, N, Parent>::
                           value_type>::value,
               bool> = true>
-CUDA_FHD auto operator-(
+THRUSTSHIFT_FHD auto operator-(
     const detail::arithmetic_multi_iterator_reference_base<Ref, N, Parent>& tup,
     const Scalar& scalar) {
 	using T = typename detail::
@@ -367,7 +370,7 @@ template <class Ref,
                       arithmetic_multi_iterator_reference_base<Ref, N, Parent>::
                           value_type>::value,
               bool> = true>
-CUDA_FHD auto operator*(
+THRUSTSHIFT_FHD auto operator*(
     const detail::arithmetic_multi_iterator_reference_base<Ref, N, Parent>& tup,
     const Scalar& scalar) {
 	using T = typename detail::
@@ -388,7 +391,7 @@ template <class Ref,
                       arithmetic_multi_iterator_reference_base<Ref, N, Parent>::
                           value_type>::value,
               bool> = true>
-CUDA_FHD auto operator*(
+THRUSTSHIFT_FHD auto operator*(
     const Scalar& scalar,
     const detail::arithmetic_multi_iterator_reference_base<Ref, N, Parent>&
         tup) {
@@ -414,7 +417,7 @@ template <class Ref,
                       arithmetic_multi_iterator_reference_base<Ref, N, Parent>::
                           value_type>::value,
               bool> = true>
-CUDA_FHD auto operator/(
+THRUSTSHIFT_FHD auto operator/(
     const detail::arithmetic_multi_iterator_reference_base<Ref, N, Parent>& tup,
     const Scalar& scalar) {
 	using T = typename detail::

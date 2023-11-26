@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 
 find_package(CMakeshift REQUIRED)
-find_package(cuda-api-wrappers REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 find_package(Boost REQUIRED COMPONENTS program_options filesystem)
 
@@ -70,8 +69,6 @@ set_target_properties(bench-k-selection PROPERTIES CUDA_SEPARABLE_COMPILATION ON
 target_link_libraries(
   bench-k-selection
   PRIVATE Boost::program_options thrustshift
-          cuda-api-wrappers::nvtx
-          CUDA::nvToolsExt # because the cuda-api-wrappers do not export the dependency correctly
 )
 
 if(INSTALL_APPS)
@@ -92,8 +89,6 @@ set_target_properties(bench-bin-values256 PROPERTIES CUDA_SEPARABLE_COMPILATION 
 target_link_libraries(
   bench-bin-values256
   PRIVATE Boost::program_options thrustshift
-          cuda-api-wrappers::nvtx
-          CUDA::nvToolsExt # because the cuda-api-wrappers do not export the dependency correctly
 )
 
 if(INSTALL_APPS)

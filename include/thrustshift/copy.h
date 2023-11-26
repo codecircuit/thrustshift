@@ -2,11 +2,9 @@
 
 #include <type_traits>
 
-#include <cuda/define_specifiers.hpp>
-#include <cuda/runtime_api.hpp>
-
 #include <gsl-lite/gsl-lite.hpp>
 
+#include <thrustshift/defines.h>
 #include <thrustshift/fill.h>
 
 namespace thrustshift {
@@ -44,7 +42,7 @@ namespace async {
 
 //! thrust uses sometimes a cudaMemcpyAsync instead of a copy kernel
 template <class SrcRange, class DstRange>
-void copy(cuda::stream_t& stream, SrcRange&& src, DstRange&& dst) {
+void copy(cudaStream_t& stream, SrcRange&& src, DstRange&& dst) {
 	gsl_Expects(src.size() == dst.size());
 
 	if (src.empty()) {
@@ -56,19 +54,18 @@ void copy(cuda::stream_t& stream, SrcRange&& src, DstRange&& dst) {
 	using dst_value_type =
 	    typename std::remove_reference<DstRange>::type::value_type;
 
-	constexpr cuda::grid::block_dimension_t block_dim = 128;
-	const cuda::grid::dimension_t grid_dim =
-	    (src.size() + block_dim - 1) / block_dim;
-	auto c = cuda::make_launch_config(grid_dim, block_dim);
-	auto k = kernel::copy<src_value_type, dst_value_type>;
-	cuda::enqueue_launch(k, stream, c, src, dst);
+	constexpr unsigned block_dim = 128;
+	const unsigned grid_dim = (src.size() + block_dim - 1) / block_dim;
+	kernel::copy<src_value_type, dst_value_type>
+	    <<<grid_dim, block_dim, 0, stream>>>(src, dst);
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 }
 
 //! Copy and search for an element. If the element occurs more than once, it
 //! is undefined which of the valid positions is returned. If the element does
 //! not occur `pos` is unchanged.
 template <class SrcRange, class DstRange, typename T, typename I>
-void copy_find(cuda::stream_t& stream,
+void copy_find(cudaStream_t& stream,
                SrcRange&& src,
                DstRange&& dst,
                const T& value,
@@ -85,12 +82,11 @@ void copy_find(cuda::stream_t& stream,
 	using dst_value_type =
 	    typename std::remove_reference<DstRange>::type::value_type;
 
-	constexpr cuda::grid::block_dimension_t block_dim = 128;
-	const cuda::grid::dimension_t grid_dim =
-	    (src.size() + block_dim - 1) / block_dim;
-	auto c = cuda::make_launch_config(grid_dim, block_dim);
-	auto k = kernel::copy_find<src_value_type, dst_value_type, T, I>;
-	cuda::enqueue_launch(k, stream, c, src, dst, value, pos);
+	constexpr unsigned block_dim = 128;
+	const unsigned grid_dim = (src.size() + block_dim - 1) / block_dim;
+	kernel::copy_find<src_value_type, dst_value_type, T, I>
+	    <<<grid_dim, block_dim, 0, stream>>>(src, dst, value, pos);
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 }
 
 } // namespace async
@@ -105,10 +101,10 @@ template <int BLOCK_DIM,
           int NUM_PER_ROW_RESULT = NUM_ELEMENTS>
 struct helper_t {
 	template <class iteratorA_t, class iteratorB_t, class F>
-	CUDA_FHD static void block_copy_even(iteratorA_t first,
-	                                     iteratorB_t result,
-	                                     int tid,
-	                                     F f) {
+	THRUSTSHIFT_FHD static void block_copy_even(iteratorA_t first,
+	                                            iteratorB_t result,
+	                                            int tid,
+	                                            F f) {
 		if (BLOCK_DIM < NUM_ELEMENTS) {
 // pragma unroll is device code specific
 #ifdef __CUDA_ARCH__
@@ -117,37 +113,47 @@ struct helper_t {
 			for (int i = 0; i < NUM_ELEMENTS - BLOCK_DIM; i += BLOCK_DIM) {
 				f(first,
 				  result,
-				  i + ((i + tid) / NUM_PER_ROW_FIRST) *
-				          (LD_FIRST - NUM_PER_ROW_FIRST) + tid,
-				  i + ((i + tid) / NUM_PER_ROW_RESULT) *
-				          (LD_RESULT - NUM_PER_ROW_RESULT) + tid);
+				  i +
+				      ((i + tid) / NUM_PER_ROW_FIRST) *
+				          (LD_FIRST - NUM_PER_ROW_FIRST) +
+				      tid,
+				  i +
+				      ((i + tid) / NUM_PER_ROW_RESULT) *
+				          (LD_RESULT - NUM_PER_ROW_RESULT) +
+				      tid);
 			}
 		}
 	}
 
 	template <class iteratorA_t, class iteratorB_t, class F>
-	CUDA_FHD static void block_copy_tail(iteratorA_t first,
-	                                     iteratorB_t result,
-	                                     int tid,
-	                                     F f) {
+	THRUSTSHIFT_FHD static void block_copy_tail(iteratorA_t first,
+	                                            iteratorB_t result,
+	                                            int tid,
+	                                            F f) {
 		if (NUM_ELEMENTS % BLOCK_DIM == 0) {
 			f(first,
 			  result,
 			  (NUM_ELEMENTS - BLOCK_DIM) +
 			      (((NUM_ELEMENTS - BLOCK_DIM) + tid) / NUM_PER_ROW_FIRST) *
-			          (LD_FIRST - NUM_PER_ROW_FIRST) + tid,
+			          (LD_FIRST - NUM_PER_ROW_FIRST) +
+			      tid,
 			  (NUM_ELEMENTS - BLOCK_DIM) +
 			      (((NUM_ELEMENTS - BLOCK_DIM) + tid) / NUM_PER_ROW_RESULT) *
-			          (LD_RESULT - NUM_PER_ROW_RESULT) + tid);
+			          (LD_RESULT - NUM_PER_ROW_RESULT) +
+			      tid);
 		}
 		else if (tid + (NUM_ELEMENTS / BLOCK_DIM) * BLOCK_DIM < NUM_ELEMENTS) {
 			constexpr int j = (NUM_ELEMENTS / BLOCK_DIM) * BLOCK_DIM;
 			f(first,
 			  result,
-			  j + ((j + tid) / NUM_PER_ROW_FIRST) *
-			          (LD_FIRST - NUM_PER_ROW_FIRST) + tid,
-			  j + ((j + tid) / NUM_PER_ROW_RESULT) *
-			          (LD_RESULT - NUM_PER_ROW_RESULT) + tid);
+			  j +
+			      ((j + tid) / NUM_PER_ROW_FIRST) *
+			          (LD_FIRST - NUM_PER_ROW_FIRST) +
+			      tid,
+			  j +
+			      ((j + tid) / NUM_PER_ROW_RESULT) *
+			          (LD_RESULT - NUM_PER_ROW_RESULT) +
+			      tid);
 		}
 	}
 }; // helper
@@ -160,10 +166,10 @@ struct helper_t<BLOCK_DIM,
                 NUM_ELEMENTS,
                 NUM_ELEMENTS> {
 	template <class iteratorA_t, class iteratorB_t, class F>
-	CUDA_FHD static void block_copy_even(iteratorA_t first,
-	                                     iteratorB_t result,
-	                                     int tid,
-	                                     F f) {
+	THRUSTSHIFT_FHD static void block_copy_even(iteratorA_t first,
+	                                            iteratorB_t result,
+	                                            int tid,
+	                                            F f) {
 		if (BLOCK_DIM < NUM_ELEMENTS) {
 // pragma unroll is device code specific
 #ifdef __CUDA_ARCH__
@@ -177,16 +183,13 @@ struct helper_t<BLOCK_DIM,
 	}
 
 	template <class iteratorA_t, class iteratorB_t, class F>
-	CUDA_FHD static void block_copy_tail(iteratorA_t first,
-	                                     iteratorB_t result,
-	                                     int tid,
-	                                     F f) {
+	THRUSTSHIFT_FHD static void block_copy_tail(iteratorA_t first,
+	                                            iteratorB_t result,
+	                                            int tid,
+	                                            F f) {
 		if (NUM_ELEMENTS % BLOCK_DIM == 0) {
 			const int j = NUM_ELEMENTS - BLOCK_DIM + tid;
-			f(first,
-			  result,
-			  j,
-			  j);
+			f(first, result, j, j);
 		}
 		else if (tid + (NUM_ELEMENTS / BLOCK_DIM) * BLOCK_DIM < NUM_ELEMENTS) {
 			const int j = (NUM_ELEMENTS / BLOCK_DIM) * BLOCK_DIM + tid;
@@ -204,17 +207,17 @@ struct helper_t<BD_AND_NE,
                 BD_AND_NE,
                 BD_AND_NE> {
 	template <class iteratorA_t, class iteratorB_t, class F>
-	CUDA_FHD static void block_copy_even(iteratorA_t first,
-	                                     iteratorB_t result,
-	                                     int tid,
-	                                     F f) {
+	THRUSTSHIFT_FHD static void block_copy_even(iteratorA_t first,
+	                                            iteratorB_t result,
+	                                            int tid,
+	                                            F f) {
 	}
 
 	template <class iteratorA_t, class iteratorB_t, class F>
-	CUDA_FHD static void block_copy_tail(iteratorA_t first,
-	                                     iteratorB_t result,
-	                                     int tid,
-	                                     F f) {
+	THRUSTSHIFT_FHD static void block_copy_tail(iteratorA_t first,
+	                                            iteratorB_t result,
+	                                            int tid,
+	                                            F f) {
 		f(first, result, tid, tid);
 	}
 
@@ -282,10 +285,10 @@ template <int BLOCK_DIM,
           int NUM_PER_ROW_FIRST = NUM_ELEMENTS,
           int NUM_PER_ROW_RESULT = NUM_ELEMENTS,
           class F>
-CUDA_FHD void block_copy(iteratorA_t first,
-                         iteratorB_t result,
-                         int tid,
-                         F f) {
+THRUSTSHIFT_FHD void block_copy(iteratorA_t first,
+                                iteratorB_t result,
+                                int tid,
+                                F f) {
 
 	detail::helper_t<BLOCK_DIM,
 	                 NUM_ELEMENTS,
@@ -315,16 +318,14 @@ template <int BLOCK_DIM,
           int NUM_PER_ROW_RESULT = NUM_ELEMENTS,
           class iteratorA_t,
           class iteratorB_t>
-CUDA_FHD void block_copy(iteratorA_t first,
-                         iteratorB_t result,
-                         int tid = threadIdx.x) {
+THRUSTSHIFT_FHD void block_copy(iteratorA_t first,
+                                iteratorB_t result,
+                                int tid = threadIdx.x) {
 
-	auto default_f = [](iteratorA_t first,
-	                    iteratorB_t result,
-	                    int i_first,
-	                    int i_result) {
-		result[i_result] = first[i_first];
-	};
+	auto default_f =
+	    [](iteratorA_t first, iteratorB_t result, int i_first, int i_result) {
+		    result[i_result] = first[i_first];
+	    };
 
 	block_copy<BLOCK_DIM,
 	           NUM_ELEMENTS,
@@ -338,19 +339,19 @@ CUDA_FHD void block_copy(iteratorA_t first,
 
 //! copy data without loops unrolled
 template <class iteratorA_t, class iteratorB_t>
-CUDA_FHD void block_copy(iteratorA_t first,
-                        int num_elements,
-                        iteratorB_t result,
-                        int group_dim,
-                        int ld_first,
-                        int ld_result,
-                        int num_per_row_first,
-                        int num_per_row_result,
-                        int tid) {
-	auto f = [](iteratorA_t first,
-	            iteratorB_t result,
-	            int i_first,
-	            int i_result) { result[i_result] = first[i_first]; };
+THRUSTSHIFT_FHD void block_copy(iteratorA_t first,
+                                int num_elements,
+                                iteratorB_t result,
+                                int group_dim,
+                                int ld_first,
+                                int ld_result,
+                                int num_per_row_first,
+                                int num_per_row_result,
+                                int tid) {
+	auto f =
+	    [](iteratorA_t first, iteratorB_t result, int i_first, int i_result) {
+		    result[i_result] = first[i_first];
+	    };
 	//////////
 	// HEAD //
 	//////////
@@ -358,10 +359,14 @@ CUDA_FHD void block_copy(iteratorA_t first,
 		for (int i = 0; i < num_elements - group_dim; i += group_dim) {
 			f(first,
 			  result,
-			  i + ((i + tid) / num_per_row_first) *
-			          (ld_first - num_per_row_first) + tid,
-			  i + ((i + tid) / num_per_row_result) *
-			          (ld_result - num_per_row_result) + tid);
+			  i +
+			      ((i + tid) / num_per_row_first) *
+			          (ld_first - num_per_row_first) +
+			      tid,
+			  i +
+			      ((i + tid) / num_per_row_result) *
+			          (ld_result - num_per_row_result) +
+			      tid);
 		}
 	}
 	//////////
@@ -372,18 +377,23 @@ CUDA_FHD void block_copy(iteratorA_t first,
 		  result,
 		  (num_elements - group_dim) +
 		      (((num_elements - group_dim) + tid) / num_per_row_first) *
-		          (ld_first - num_per_row_first) + tid,
+		          (ld_first - num_per_row_first) +
+		      tid,
 		  (num_elements - group_dim) +
 		      (((num_elements - group_dim) + tid) / num_per_row_result) *
-		          (ld_result - num_per_row_result) + tid);
+		          (ld_result - num_per_row_result) +
+		      tid);
 	}
 	else if (tid + (num_elements / group_dim) * group_dim < num_elements) {
 		const int j = (num_elements / group_dim) * group_dim;
 		f(first,
 		  result,
-		  j + ((j + tid) / num_per_row_first) * (ld_first - num_per_row_first) + tid,
-		  j + ((j + tid) / num_per_row_result) *
-		          (ld_result - num_per_row_result) + tid);
+		  j + ((j + tid) / num_per_row_first) * (ld_first - num_per_row_first) +
+		      tid,
+		  j +
+		      ((j + tid) / num_per_row_result) *
+		          (ld_result - num_per_row_result) +
+		      tid);
 	}
 }
 

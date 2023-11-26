@@ -1,11 +1,10 @@
 #pragma once
 
-#include <cuda/runtime_api.hpp>
-
 #include <gsl-lite/gsl-lite.hpp>
 
 #include <cub/cub.cuh>
 
+#include <thrustshift/defines.h>
 #include <thrustshift/not-a-vector.h>
 
 namespace thrustshift {
@@ -16,7 +15,7 @@ template <class ValuesInRange,
           class ValuesOutRange,
           class ScanOp,
           class MemoryResource>
-void inclusive_scan(cuda::stream_t& stream,
+void inclusive_scan(cudaStream_t& stream,
                     ValuesInRange&& values_in,
                     ValuesOutRange&& values_out,
                     ScanOp scan_op,
@@ -30,13 +29,14 @@ void inclusive_scan(cuda::stream_t& stream,
 	void* tmp_ptr = nullptr;
 
 	auto exec = [&] {
-		cuda::throw_if_error(cub::DeviceScan::InclusiveScan(tmp_ptr,
-		                                                    tmp_bytes_size,
-		                                                    values_in.data(),
-		                                                    values_out.data(),
-		                                                    scan_op,
-		                                                    N,
-		                                                    stream.handle()));
+		THRUSTSHIFT_CHECK_CUDA_ERROR(
+		    cub::DeviceScan::InclusiveScan(tmp_ptr,
+		                                   tmp_bytes_size,
+		                                   values_in.data(),
+		                                   values_out.data(),
+		                                   scan_op,
+		                                   N,
+		                                   stream));
 	};
 	exec();
 	auto tmp =

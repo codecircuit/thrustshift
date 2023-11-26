@@ -6,11 +6,10 @@
 
 #include <cuda/std/array>
 
-#include <cuda/define_specifiers.hpp>
-
 #include <thrust/tuple.h>
 
 #include <thrustshift/container-conversion.h>
+#include <thrustshift/defines.h>
 #include <thrustshift/transform.h>
 #include <thrustshift/type-traits.h>
 
@@ -26,7 +25,7 @@ template <typename It,
           template <typename, std::size_t>
           class Arr,
           std::size_t... I>
-CUDA_FHD auto array_of_iterators2reference_thrust_tuple_impl(
+THRUSTSHIFT_FHD auto array_of_iterators2reference_thrust_tuple_impl(
     const Arr<It, N>& arr,
     std::index_sequence<I...>) {
 	using Ref = typename std::iterator_traits<It>::reference;
@@ -41,7 +40,8 @@ template <typename It,
           template <typename, std::size_t>
           class Arr,
           class I = std::make_index_sequence<N>>
-CUDA_FHD auto array_of_iterators2reference_thrust_tuple(const Arr<It, N>& arr) {
+THRUSTSHIFT_FHD auto array_of_iterators2reference_thrust_tuple(
+    const Arr<It, N>& arr) {
 	return detail::array_of_iterators2reference_thrust_tuple_impl(arr, I{});
 }
 
@@ -59,42 +59,46 @@ class multi_iterator {
 	using iterator_category =
 	    typename std::iterator_traits<It>::iterator_category;
 
-	CUDA_FHD
+	THRUSTSHIFT_FHD
 	multi_iterator(const cuda::std::array<It, N>& iterators)
 	    : iterators_(iterators) {
 	}
-	CUDA_FHD
+	THRUSTSHIFT_FHD
 	multi_iterator(cuda::std::array<It, N>&& iterators)
 	    : iterators_(std::move(iterators)) {
 	}
 
-	CUDA_FHD constexpr std::size_t size() const noexcept {
+	THRUSTSHIFT_FHD constexpr std::size_t size() const noexcept {
 		return iterators_.size();
 	}
 
-	CUDA_FHD reference operator*() {
+	THRUSTSHIFT_FHD reference operator*() {
 		return array_of_iterators2reference_thrust_tuple(iterators_);
 	}
 
-	CUDA_FHD multi_iterator<It, N, Ref>& operator+=(difference_type index) {
+	THRUSTSHIFT_FHD multi_iterator<It, N, Ref>& operator+=(
+	    difference_type index) {
 		iterators_ = array::transform(
-		    iterators_, [index] CUDA_HD(const It& it) { return it + index; });
+		    iterators_,
+		    [index] THRUSTSHIFT_HD(const It& it) { return it + index; });
 		return *this;
 	}
 
-	CUDA_FHD multi_iterator<It, N, Ref>& operator-=(difference_type index) {
+	THRUSTSHIFT_FHD multi_iterator<It, N, Ref>& operator-=(
+	    difference_type index) {
 		iterators_ = array::transform(
-		    iterators_, [index] CUDA_HD(const It& it) { return it - index; });
+		    iterators_,
+		    [index] THRUSTSHIFT_HD(const It& it) { return it - index; });
 		return *this;
 	}
 
-	CUDA_FHD multi_iterator<It, N, Ref>& operator++() {
+	THRUSTSHIFT_FHD multi_iterator<It, N, Ref>& operator++() {
 		iterators_ = array::transform(
-		    iterators_, [] CUDA_HD(const It& it) { return it + 1; });
+		    iterators_, [] THRUSTSHIFT_HD(const It& it) { return it + 1; });
 		return *this;
 	}
 
-	CUDA_FHD reference operator[](difference_type index) const {
+	THRUSTSHIFT_FHD reference operator[](difference_type index) const {
 		auto it = *this;
 		it += index;
 		return *it;
@@ -113,8 +117,8 @@ template <
     class It,
     std::size_t N,
     class difference_type = typename multi_iterator<It, N>::difference_type>
-CUDA_FHD multi_iterator<It, N> operator+(const multi_iterator<It, N>& it,
-                                         difference_type n) {
+THRUSTSHIFT_FHD multi_iterator<It, N> operator+(const multi_iterator<It, N>& it,
+                                                difference_type n) {
 	multi_iterator<It, N> other(it);
 	other += n;
 	return other;
@@ -124,8 +128,9 @@ template <
     class It,
     std::size_t N,
     class difference_type = typename multi_iterator<It, N>::difference_type>
-CUDA_FHD multi_iterator<It, N> operator+(difference_type n,
-                                         const multi_iterator<It, N>& it) {
+THRUSTSHIFT_FHD multi_iterator<It, N> operator+(
+    difference_type n,
+    const multi_iterator<It, N>& it) {
 	return it + n;
 }
 
@@ -134,8 +139,8 @@ template <
     class It,
     std::size_t N,
     class difference_type = typename multi_iterator<It, N>::difference_type>
-CUDA_FHD multi_iterator<It, N> operator-(const multi_iterator<It, N>& it,
-                                         difference_type n) {
+THRUSTSHIFT_FHD multi_iterator<It, N> operator-(const multi_iterator<It, N>& it,
+                                                difference_type n) {
 	multi_iterator<It, N> other(it);
 	other -= n;
 	return other;

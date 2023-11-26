@@ -9,12 +9,11 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/runtime_api.hpp>
-
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
 
 #include <thrustshift/CSR.h>
+#include <thrustshift/defines.h>
 #include <thrustshift/k-selection.h>
 #include <thrustshift/managed-vector.h>
 #include <thrustshift/memory-resource.h>
@@ -148,9 +147,7 @@ void do_k_selection_test(const k_selection_test_data_t<T>& td) {
 	const int k = td.k;
 	const std::size_t N = v.size();
 
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
-
+	cudaStream_t stream = 0;
 	const auto selected_values_gold = k_largest_abs_values_gold(v, k);
 
 	thrustshift::pmr::delayed_pool_type<thrustshift::pmr::managed_resource_type>
@@ -166,7 +163,7 @@ void do_k_selection_test(const k_selection_test_data_t<T>& td) {
 	                                      k,
 	                                      delayed_memory_resource);
 
-	device.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaDeviceSynchronize());
 	std::set<T> gold_selected_unique;
 	std::set<T> contender_selected_unique;
 	for (const auto& e : selected_values_gold) {
@@ -191,8 +188,7 @@ void do_k_selection_test_cub(const k_selection_test_data_t<T>& td) {
 	const int k = td.k;
 	const std::size_t N = v.size();
 
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
+	cudaStream_t stream = 0;
 
 	const auto selected_values_gold = k_largest_abs_values_gold(v, k);
 
@@ -266,9 +262,7 @@ void do_k_selection_intra_block_test(const k_selection_test_data_t<T>& td) {
 	const int k = td.k;
 	const std::size_t N = v.size();
 
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
-
+	cudaStream_t stream = 0;
 	const auto selected_values_gold = k_largest_abs_values_gold(v, k);
 
 	thrustshift::pmr::delayed_pool_type<thrustshift::pmr::managed_resource_type>
@@ -282,20 +276,17 @@ void do_k_selection_intra_block_test(const k_selection_test_data_t<T>& td) {
 	auto bit_offset_s = tmp1.to_span();
 
 	constexpr int block_dim = 128;
-	auto c = cuda::make_launch_config(1, block_dim);
 
-	device.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaDeviceSynchronize());
 
-	cuda::enqueue_launch(do_k_selection_intra_block_kernel<T, block_dim>,
-	                     stream,
-	                     c,
-	                     v.data(),
-	                     selected_values.data(),
-	                     N,
-	                     k,
-	                     prefix_s.data(),
-	                     bit_offset_s.data());
-	device.synchronize();
+	do_k_selection_intra_block_kernel<T, block_dim>
+	    <<<1, block_dim, 0, stream>>>(v.data(),
+	                                  selected_values.data(),
+	                                  N,
+	                                  k,
+	                                  prefix_s.data(),
+	                                  bit_offset_s.data());
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaDeviceSynchronize());
 
 	auto [prefix, bit_offset] =
 	    k_largest_values_abs_radix<T>(stream, v, k, delayed_memory_resource);

@@ -2,8 +2,7 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/runtime_api.hpp>
-
+#include <thrustshift/defines.h>
 #include <thrustshift/math.h>
 
 namespace thrustshift {
@@ -27,12 +26,14 @@ namespace range {
 namespace async {
 
 template <class Range, typename I>
-void iota(cuda::stream_t& stream, Range r, I i0) {
+void iota(cudaStream_t& stream, Range r, I i0) {
 
-	constexpr int block_dim = 128;
-	auto c = cuda::make_launch_config(
-	    ceil_divide<decltype(r.size())>(r.size(), block_dim), block_dim);
-	cuda::enqueue_launch(kernel::iota<Range, I>, stream, c, r, i0);
+	constexpr unsigned block_dim = 128;
+	const unsigned grid_dim =
+	    ceil_divide<decltype(r.size())>(r.size(), block_dim);
+
+	kernel::iota<Range, I><<<grid_dim, block_dim, 0, stream>>>(r, i0);
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 }
 
 } // namespace async

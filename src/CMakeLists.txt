@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.18)
 
 find_package(CMakeshift REQUIRED)
 find_package(gsl-lite REQUIRED)
-find_package(cuda-api-wrappers REQUIRED)
 find_package(CUB REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 find_package(sysmakeshift REQUIRED)
 find_package(makeshift REQUIRED)
 
@@ -23,8 +23,9 @@ target_compile_definitions(thrustshift INTERFACE CUDA_FORCE_CDP1_IF_SUPPORTED)
 target_link_libraries(
   thrustshift
   INTERFACE
-    gsl::gsl-lite-v1 cuda-api-wrappers::runtime-and-driver
+    gsl::gsl-lite-v1
     sysmakeshift::sysmakeshift
+    CUDA::cudart
     CUB::CUB
     makeshift::makeshift
 )

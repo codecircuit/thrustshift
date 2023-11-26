@@ -6,12 +6,11 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/runtime_api.hpp>
-
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
 
 #include <thrustshift/copy.h>
+#include <thrustshift/defines.h>
 #include <thrustshift/managed-vector.h>
 
 namespace bdata = boost::unit_test::data;
@@ -25,23 +24,20 @@ __global__ void do_block_copy_simple(gsl_lite::span<const int> src,
 
 template <int BLOCK_DIM, int N>
 void do_simple_block_copy_test() {
-	auto device = cuda::device::current::get();
 	managed_vector<int> src(N);
 	std::iota(src.begin(), src.end(), 0);
 	managed_vector<int> dst(N);
 
-	cuda::launch(do_block_copy_simple<BLOCK_DIM, N>,
-	             cuda::make_launch_config(1, BLOCK_DIM),
-	             gsl::make_span(src),
-	             gsl::make_span(dst));
+	do_block_copy_simple<BLOCK_DIM, N>
+	    <<<1, BLOCK_DIM>>>(gsl::make_span(src), gsl::make_span(dst));
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaDeviceSynchronize());
 
-	device.synchronize();
 	BOOST_TEST(std::equal(src.begin(), src.end(), dst.begin()));
 }
 
 BOOST_AUTO_TEST_CASE(test_block_copy_simple) {
 
-	auto device = cuda::device::current::get();
 	{
 		constexpr int N = 100;
 		constexpr int BLOCK_DIM = 128;

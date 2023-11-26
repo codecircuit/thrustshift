@@ -5,11 +5,10 @@
 #include <tuple>
 #include <vector>
 
+#include <cuda_profiler_api.h>
+
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
-
-#include <cuda/nvtx/profiling.hpp>
-#include <cuda/runtime_api.hpp>
 
 #include <makeshift/iomanip.hpp>
 
@@ -92,10 +91,7 @@ int main(int argc, const char* argv[]) {
 	cli_params_t clip;
 	auto vm = parse_cmdline(argc, argv, clip);
 
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
-
-	std::cout << "  - device = \"" << device.name() << "\"" << std::endl;
+	cudaStream_t stream = 0;
 	std::cout << "  - N = " << clip.N << std::endl;
 
 	thrustshift::managed_vector<T> values_(clip.N);
@@ -188,24 +184,29 @@ int main(int argc, const char* argv[]) {
 		}
 	};
 
-	auto start = device.create_event();
-	auto stop = device.create_event();
+	cudaEvent_t start, stop;
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventCreate(&start));
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventCreate(&stop));
 
 	for (int warmup_id = 0, e = clip.num_warmups; warmup_id < e; ++warmup_id) {
 		exec();
 	}
 
-	cuda::profiling::start();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaProfilerStart());
 	exec();
-	cuda::profiling::stop();
-	start.record(stream);
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaProfilerStop());
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventRecord(start));
 	for (int measurement_id = 0, e = clip.num_measurements; measurement_id < e;
 	     ++measurement_id) {
 		exec();
 	}
-	stop.record(stream);
-	device.synchronize();
-	Duration dur = cuda::event::time_elapsed_between(start, stop);
-	std::cout << "  - duration = " << dur.count() / clip.num_measurements
-	          << " s" << std::endl;
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventRecord(stop));
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaDeviceSynchronize());
+	float dur = 0;
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventElapsedTime(&dur, start, stop));
+
+	std::cout << "  - duration = " << dur * 1e3 / clip.num_measurements << " s"
+	          << std::endl;
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventDestroy(start));
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventDestroy(stop));
 }

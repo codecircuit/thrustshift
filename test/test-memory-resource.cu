@@ -3,8 +3,6 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/runtime_api.hpp>
-
 #include <thrust/reduce.h>
 
 #include <boost/test/data/test_case.hpp>
@@ -63,8 +61,6 @@ BOOST_AUTO_TEST_CASE(test_move_memory_resource) {
 
 BOOST_AUTO_TEST_CASE(test_memory_resource_with_thrusts_reduce_by_key) {
 	pmr::delayed_pool_type<pmr::managed_resource_type> memory_resource;
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
 	{
 		const int N = 2401;
 

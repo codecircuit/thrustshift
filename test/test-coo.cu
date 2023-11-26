@@ -3,8 +3,6 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/runtime_api.hpp>
-
 #include <Eigen/Sparse>
 
 #include <boost/test/data/test_case.hpp>
@@ -170,8 +168,6 @@ BOOST_AUTO_TEST_CASE(test_symmetrize_abs_coo_matrix_store,
 	    "A_problem4n256square.mtx";
 	Eigen::SparseMatrix<float> eigen_mtx =
 	    matrixmarket::readEigenSparseFromFile<float>(pth);
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
 
 	// Symmetrize test are undefined on non-square matrices
 	if (eigen_mtx.rows() == eigen_mtx.cols()) {
@@ -195,8 +191,7 @@ BOOST_AUTO_TEST_CASE(test_symmetrize_abs_coo_matrix_store,
 
 BOOST_DATA_TEST_CASE(test_coo_get_diagonal, test_data, td) {
 
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
+	cudaStream_t stream = 0;
 
 	// Symmetrize test are undefined on non-square matrices
 	thrustshift::COO<float, int> coo(
@@ -209,7 +204,7 @@ BOOST_DATA_TEST_CASE(test_coo_get_diagonal, test_data, td) {
 	Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> eigen_mtx =
 	    eigen::coo2sparse_mtx<Eigen::SparseMatrix<float>>(coo);
 	async::get_diagonal<float>(stream, coo, diagonal);
-	stream.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 	auto eig_diag = eigen_mtx.diagonal();
 	for (size_t i = 0; i < N; ++i) {
 		BOOST_TEST_CONTEXT("row_id = " << i << ", eigen_diag = " << eig_diag[i]

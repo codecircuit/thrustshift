@@ -3,8 +3,6 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/runtime_api.hpp>
-
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
 

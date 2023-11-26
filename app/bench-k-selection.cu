@@ -4,12 +4,12 @@
 #include <tuple>
 #include <vector>
 
+#include <cuda_profiler_api.h>
+
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
 
-#include <cuda/nvtx/profiling.hpp>
-#include <cuda/runtime_api.hpp>
-
+#include <thrustshift/defines.h>
 #include <thrustshift/k-selection.h>
 #include <thrustshift/managed-vector.h>
 #include <thrustshift/memory-resource.h>
@@ -56,10 +56,8 @@ int main(int argc, const char* argv[]) {
 
 	using T = float;
 
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
-
-	std::cout << "  - device = \"" << device.name() << "\"" << std::endl;
+	int device_id = 0;
+	cudaStream_t stream = 0;
 
 	constexpr int N_max = 1 << 20;
 	constexpr int N_min = 1 << 20;
@@ -83,8 +81,8 @@ int main(int argc, const char* argv[]) {
 
 	thrustshift::managed_vector<int> bit_offset_s(1);
 	thrustshift::managed_vector<uint64_t> prefix_s(1);
-	thrustshift::async::prefetch(stream, device, bit_offset_s);
-	thrustshift::async::prefetch(stream, device, prefix_s);
+	thrustshift::async::prefetch(stream, device_id, bit_offset_s);
+	thrustshift::async::prefetch(stream, device_id, prefix_s);
 
 	gsl_lite::span<T> selected_values(selected_values_);
 	gsl_lite::span<int> selected_indices(selected_indices_);
@@ -191,8 +189,9 @@ int main(int argc, const char* argv[]) {
 		}
 	};
 
-	auto start = device.create_event();
-	auto stop = device.create_event();
+	cudaEvent_t start, stop;
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventCreate(&start));
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventCreate(&stop));
 
 	for (int N = N_max; N >= N_min; N /= 2) {
 		for (int scheme_id : std::array{11}) {
@@ -200,25 +199,28 @@ int main(int argc, const char* argv[]) {
 			     ++warmup_id) {
 				do_k_select(N, k, scheme_id);
 			}
-			cuda::profiling::start();
+			THRUSTSHIFT_CHECK_CUDA_ERROR(cudaProfilerStart());
 			do_k_select(N, k, scheme_id);
-			cuda::profiling::stop();
-			const std::string range_label(std::to_string(scheme_id));
-			auto range = cuda::profiling::mark::range_start(range_label.c_str());
-			start.record(stream);
+			THRUSTSHIFT_CHECK_CUDA_ERROR(cudaProfilerStop());
+
+			THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventRecord(start));
 			for (int measurement_id = 0, e = get_num_measurements(N);
 			     measurement_id < e;
 			     ++measurement_id) {
 				do_k_select(N, k, scheme_id);
 			}
-			stop.record(stream);
-			device.synchronize();
-			cuda::profiling::mark::range_end(range);
-			// std::cout << "tup = " << std::get<0>(tup) << std::endl;
-			Duration dur = cuda::event::time_elapsed_between(start, stop);
-			timings[{N, k, scheme_id}] = dur.count() / get_num_measurements(N);
+			THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventRecord(stop));
+			THRUSTSHIFT_CHECK_CUDA_ERROR(cudaDeviceSynchronize());
+			float dur = 0;
+			THRUSTSHIFT_CHECK_CUDA_ERROR(
+			    cudaEventElapsedTime(&dur, start, stop));
+
+			timings[{N, k, scheme_id}] = dur * 1e3 / get_num_measurements(N);
 		}
 	}
+
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventDestroy(start));
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaEventDestroy(stop));
 
 	std::cout << "set size = " << set.size() << std::endl;
 	std::cout << "N,k,scheme_id,time\n";

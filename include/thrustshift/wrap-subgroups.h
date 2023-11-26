@@ -4,13 +4,11 @@
 #include <iostream>
 #include <limits>
 
-#include <cuda/define_specifiers.hpp>
-#include <cuda/runtime_api.hpp>
-
 #include <gsl-lite/gsl-lite.hpp>
 
 #include <cub/cub.cuh>
 
+#include <thrustshift/defines.h>
 #include <thrustshift/fill.h>
 #include <thrustshift/math.h>
 #include <thrustshift/not-a-vector.h>
@@ -50,7 +48,7 @@ namespace {
 template <typename StorageIndex>
 struct unequal_to_functor {
 	StorageIndex x;
-	CUDA_FD bool operator()(StorageIndex y) const {
+	THRUSTSHIFT_FD bool operator()(StorageIndex y) const {
 		return y != x;
 	}
 };
@@ -87,7 +85,7 @@ namespace async {
  *    total number of groups is written to this variable.
  */
 template <typename IndexT, class MemoryResource>
-void wrap_subgroups(cuda::stream_t& stream,
+void wrap_subgroups(cudaStream_t& stream,
                     gsl_lite::span<const IndexT> subgroup_ptrs,
                     IndexT num_elements,
                     gsl_lite::span<IndexT> group_ptrs,
@@ -95,7 +93,7 @@ void wrap_subgroups(cuda::stream_t& stream,
                     gsl_lite::not_null<IndexT*> group_ptrs_size,
                     MemoryResource& delayed_memory_resource) {
 
-	constexpr cuda::grid::block_dimension_t block_dim = 128;
+	constexpr unsigned block_dim = 128;
 
 	if (subgroup_ptrs.size() < 2) {
 		// There is not a single subgroup
@@ -120,14 +118,14 @@ void wrap_subgroups(cuda::stream_t& stream,
 	size_t tmp_storage_size = 0;
 
 	auto enqueue_select_if = [&]() {
-		cuda::throw_if_error(cub::DeviceSelect::If(tmp_storage.data(),
-		                                           tmp_storage_size,
-		                                           group_ptrs.data(),
-		                                           group_ptrs.data(),
-		                                           group_ptrs_size,
-		                                           group_ptrs.size(),
-		                                           f,
-		                                           stream.handle()));
+		THRUSTSHIFT_CHECK_CUDA_ERROR(cub::DeviceSelect::If(tmp_storage.data(),
+		                                                   tmp_storage_size,
+		                                                   group_ptrs.data(),
+		                                                   group_ptrs.data(),
+		                                                   group_ptrs_size,
+		                                                   group_ptrs.size(),
+		                                                   f,
+		                                                   stream));
 	};
 	// set temporary memory size only
 	enqueue_select_if();
@@ -142,13 +140,9 @@ void wrap_subgroups(cuda::stream_t& stream,
 	const IndexT num_rows = subgroup_ptrs.size() - 1;
 	const IndexT grid_dim =
 	    ceil_divide(num_rows, gsl_lite::narrow<IndexT>(block_dim));
-	cuda::enqueue_launch(kernel::wrap_subgroups<IndexT>,
-	                     stream,
-	                     cuda::make_launch_config(grid_dim, block_dim),
-	                     subgroup_ptrs,
-	                     group_ptrs,
-	                     mean_group_size);
-
+	kernel::wrap_subgroups<IndexT><<<grid_dim, block_dim, 0, stream>>>(
+	    subgroup_ptrs, group_ptrs, mean_group_size);
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
 	enqueue_select_if();
 }
 

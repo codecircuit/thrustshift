@@ -2,6 +2,7 @@
 
 #include <cub/cub.cuh>
 
+#include <thrustshift/defines.h>
 #include <thrustshift/not-a-vector.h>
 
 namespace thrustshift {
@@ -14,7 +15,7 @@ template <class SampleIterator,
           class I1,
           class I2,
           class MemoryResource>
-void bin_values_into_histogram(cuda::stream_t& stream,
+void bin_values_into_histogram(cudaStream_t& stream,
                                SampleIterator samples,
                                HistogramIterator histogram,
                                I0 num_bins,
@@ -29,15 +30,16 @@ void bin_values_into_histogram(cuda::stream_t& stream,
 	void* tmp_ptr = nullptr;
 
 	auto exec = [&] {
-		cuda::throw_if_error(cub::DeviceHistogram::HistogramEven(tmp_ptr,
-		                                                         tmp_bytes_size,
-		                                                         samples,
-		                                                         histogram,
-		                                                         num_levels,
-		                                                         lower_level,
-		                                                         upper_level,
-		                                                         num_samples,
-		                                                         stream.handle()));
+		THRUSTSHIFT_CHECK_CUDA_ERROR(
+		    cub::DeviceHistogram::HistogramEven(tmp_ptr,
+		                                        tmp_bytes_size,
+		                                        samples,
+		                                        histogram,
+		                                        num_levels,
+		                                        lower_level,
+		                                        upper_level,
+		                                        num_samples,
+		                                        stream));
 	};
 	exec();
 	auto tmp =

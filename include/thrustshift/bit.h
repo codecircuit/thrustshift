@@ -3,9 +3,9 @@
 #include <bitset>
 #include <type_traits>
 
-#include <cuda/define_specifiers.hpp>
-
 #include <gsl-lite/gsl-lite.hpp>
+
+#include <thrustshift/defines.h>
 
 namespace thrustshift {
 
@@ -30,25 +30,26 @@ int count_leading_zeros_cpu(I i) {
 template <typename I>
 int count_leading_zeros_gpu(I i);
 
-template<> CUDA_FD int count_leading_zeros_gpu<int>(int i) {
+template <>
+THRUSTSHIFT_FD int count_leading_zeros_gpu<int>(int i) {
 	return __clz(i);
 }
 
-template<> CUDA_FD int count_leading_zeros_gpu<long long int>(long long int i) {
+template <>
+THRUSTSHIFT_FD int count_leading_zeros_gpu<long long int>(long long int i) {
 	return __clzll(i);
 }
 
 } // namespace detail
 
 template <typename I>
-CUDA_FHD int count_leading_zeros(I i) {
+THRUSTSHIFT_FHD int count_leading_zeros(I i) {
 
 #ifdef __CUDA_ARCH__
 	return detail::count_leading_zeros_gpu(i);
 #else
 	return detail::count_leading_zeros_cpu(i);
 #endif
-
 }
 
 } // namespace thrustshift

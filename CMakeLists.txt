@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 
-project(thrustshift VERSION 0.0.1 LANGUAGES CXX CUDA)
+project(thrustshift VERSION 0.1.0 LANGUAGES CXX CUDA)
 
 option(BUILD_TESTS "Build tests" OFF)
 option(BUILD_APPS "Build apps" OFF)
@@ -26,7 +26,6 @@ cmakeshift_install_basic_package_files(
   thrustshift
   DEPENDENCIES
   "CMakeshift"
-  "cuda-api-wrappers"
   "CUB"
   "sysmakeshift"
   "makeshift"

@@ -5,17 +5,16 @@
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
 
-#include <cuda/runtime_api.hpp>
-
 #include <thrustshift/copy.h>
+#include <thrustshift/defines.h>
 #include <thrustshift/managed-vector.h>
 
 namespace thrustshift {
 
 template <class MemoryResource>
 void touch_all_memory_resource_pages(MemoryResource& memory_resource) {
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
+
+	cudaStream_t stream = 0;
 
 	for (const auto& [k, v] : memory_resource.get_book()) {
 		for (const auto& page : v) {
@@ -25,7 +24,7 @@ void touch_all_memory_resource_pages(MemoryResource& memory_resource) {
 			managed_vector<T> dst(N);
 			gsl_lite::span<T> src(reinterpret_cast<T*>(page.ptr), N);
 			async::copy(stream, src, gsl_lite::span<T>(dst));
-			stream.synchronize();
+			THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 			for (size_t i = 0; i < N; ++i) {
 				dst[i] = src[i];
 			}

@@ -6,8 +6,8 @@
 #include <gsl-lite/gsl-lite.hpp>
 
 #include <thrust/sort.h>
-#include <cuda/define_specifiers.hpp>
 
+#include <thrustshift/defines.h>
 #include <thrustshift/equal.h>
 #include <thrustshift/memory-resource.h>
 
@@ -256,39 +256,39 @@ class CSR_view {
 	CSR_view(const CSR_view& other) = default;
 	CSR_view(CSR_view&& other) = default;
 
-	CUDA_FHD gsl_lite::span<DataType> values() {
+	THRUSTSHIFT_FHD gsl_lite::span<DataType> values() {
 		return values_;
 	}
 
-	CUDA_FHD gsl_lite::span<const DataType> values() const {
+	THRUSTSHIFT_FHD gsl_lite::span<const DataType> values() const {
 		return values_;
 	}
 
-	CUDA_FHD gsl_lite::span<IndexType> col_indices() {
+	THRUSTSHIFT_FHD gsl_lite::span<IndexType> col_indices() {
 		return col_indices_;
 	}
 
-	CUDA_FHD gsl_lite::span<const IndexType> col_indices() const {
+	THRUSTSHIFT_FHD gsl_lite::span<const IndexType> col_indices() const {
 		return col_indices_;
 	}
 
-	CUDA_FHD gsl_lite::span<IndexType> row_ptrs() {
+	THRUSTSHIFT_FHD gsl_lite::span<IndexType> row_ptrs() {
 		return row_ptrs_;
 	}
 
-	CUDA_FHD gsl_lite::span<const IndexType> row_ptrs() const {
+	THRUSTSHIFT_FHD gsl_lite::span<const IndexType> row_ptrs() const {
 		return row_ptrs_;
 	}
 
-	CUDA_FHD size_t num_rows() const {
+	THRUSTSHIFT_FHD size_t num_rows() const {
 		return row_ptrs_.size() - 1;
 	}
 
-	CUDA_FHD size_t num_cols() const {
+	THRUSTSHIFT_FHD size_t num_cols() const {
 		return num_cols_;
 	}
 
-	CUDA_FHD auto max_row_nnz() const {
+	THRUSTSHIFT_FHD auto max_row_nnz() const {
 		using I = typename std::remove_const<IndexType>::type;
 		I mnnz = 0;
 		for (size_t row_id = 1; row_id < row_ptrs_.size(); ++row_id) {

@@ -8,11 +8,10 @@
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/scatter.h>
 
-#include <cuda/define_specifiers.hpp>
-
 #include <gsl-lite/gsl-lite.hpp>
 
 #include <thrustshift/bit.h>
+#include <thrustshift/defines.h>
 #include <thrustshift/gather.h>
 #include <thrustshift/managed-vector.h>
 #include <thrustshift/not-a-vector.h>
@@ -141,7 +140,7 @@ template <class BitPatternT>
 class bit_successive_permutation_t {
 
    public:
-	CUDA_FHD bit_successive_permutation_t(int N)
+	THRUSTSHIFT_FHD bit_successive_permutation_t(int N)
 	    : bit_pattern_(BitPatternT(1) << (N - 1)) {
 		gsl_Expects(N <= sizeof(BitPatternT) * 8);
 #ifndef NDEBUG
@@ -149,7 +148,7 @@ class bit_successive_permutation_t {
 #endif
 	}
 
-	CUDA_FHD void do_swap(int j) {
+	THRUSTSHIFT_FHD void do_swap(int j) {
 		gsl_Expects(j < sizeof(BitPatternT) * 8);
 #ifndef NDEBUG
 		gsl_Expects(!read_only_mode_);
@@ -158,7 +157,7 @@ class bit_successive_permutation_t {
 		bit_pattern_ &= ~(BitPatternT(1) << j);
 	}
 
-	CUDA_FHD void do_not_swap(int j) {
+	THRUSTSHIFT_FHD void do_not_swap(int j) {
 		gsl_Expects(j < sizeof(BitPatternT) * 8);
 #ifndef NDEBUG
 		gsl_Expects(!read_only_mode_);
@@ -167,7 +166,7 @@ class bit_successive_permutation_t {
 		bit_pattern_ |= (BitPatternT(1) << j);
 	}
 
-	CUDA_FHD void set(int j, bool do_swap_) {
+	THRUSTSHIFT_FHD void set(int j, bool do_swap_) {
 		if (do_swap_) {
 			do_swap(j);
 		}
@@ -176,7 +175,7 @@ class bit_successive_permutation_t {
 		}
 	}
 
-	CUDA_FHD int operator[](int i) {
+	THRUSTSHIFT_FHD int operator[](int i) {
 		gsl_Expects(i < sizeof(BitPatternT) * 8);
 #ifndef NDEBUG
 		gsl_Expects(i < N_);

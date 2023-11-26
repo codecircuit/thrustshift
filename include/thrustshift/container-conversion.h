@@ -9,6 +9,7 @@
 #include <thrustshift/COO.h>
 #include <thrustshift/CSR.h>
 #include <thrustshift/copy.h>
+#include <thrustshift/defines.h>
 #include <thrustshift/type-traits.h>
 
 namespace thrustshift {
@@ -43,15 +44,14 @@ COO_C csr2coo(CSR_C&& csr, MemoryResource& memory_resource) {
 
 	const size_t nnz = csr.values().size();
 	COO_C coo(nnz, csr.num_rows(), csr.num_cols(), memory_resource);
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
+	cudaStream_t stream = 0;
 	async::copy(stream, csr.values(), coo.values());
 	async::copy(stream, csr.col_indices(), coo.col_indices());
 
 	row_ptrs2row_indices(csr.row_ptrs(), coo.row_indices());
 
 	coo.change_storage_order(storage_order_t::row_major);
-	stream.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 	return coo;
 }
 
@@ -93,8 +93,8 @@ CSR_C coo2csr(COO_C&& coo_, MemoryResource& memory_resource) {
 namespace detail {
 
 template <class ArrayT, std::size_t... I>
-CUDA_FHD auto array2thrust_tuple_impl(const ArrayT& arr,
-                                      std::index_sequence<I...>) {
+THRUSTSHIFT_FHD auto array2thrust_tuple_impl(const ArrayT& arr,
+                                             std::index_sequence<I...>) {
 	return thrust::make_tuple(arr[I]...);
 }
 
@@ -105,15 +105,15 @@ template <typename T,
           template <typename, std::size_t>
           class Arr,
           class I = std::make_index_sequence<N>>
-CUDA_FHD auto array2thrust_tuple(const Arr<T, N>& arr) {
+THRUSTSHIFT_FHD auto array2thrust_tuple(const Arr<T, N>& arr) {
 	return detail::array2thrust_tuple_impl(arr, I{});
 }
 
 namespace detail {
 
 template <class Tuple, std::size_t... I>
-CUDA_FHD auto tuple2cuda_array_impl(const Tuple& tup,
-                                    std::index_sequence<I...>) {
+THRUSTSHIFT_FHD auto tuple2cuda_array_impl(const Tuple& tup,
+                                           std::index_sequence<I...>) {
 	using std::get;
 	// https://stackoverflow.com/questions/25732386/what-is-stddecay-and-when-it-should-be-used#:~:text=It%20is%20used%20in%20the,is%20stored%20and%20so%20on.
 	// `std::decay(decltype(get<0>(tup))::type` can be used to deduce the type of
@@ -128,7 +128,7 @@ CUDA_FHD auto tuple2cuda_array_impl(const Tuple& tup,
 //! Convert a tuple of equal types `T` into a cuda array.
 //! If the tuple has different types, the behaviour is undefined.
 template <typename T, typename... Rest, template <typename...> class Tuple>
-CUDA_FHD auto tuple2cuda_array(const Tuple<T, Rest...>& tup) {
+THRUSTSHIFT_FHD auto tuple2cuda_array(const Tuple<T, Rest...>& tup) {
 	constexpr std::size_t len = sizeof(Tuple<T, Rest...>) / sizeof(T);
 	using I = std::make_index_sequence<len>;
 	return detail::tuple2cuda_array_impl(tup, I{});

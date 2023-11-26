@@ -5,7 +5,6 @@
 
 #include <thrust/tuple.h>
 
-#include <cuda/define_specifiers.hpp>
 #include <thrustshift/type-traits.h>
 
 namespace bdata = boost::unit_test::data;
@@ -13,12 +12,12 @@ using namespace thrustshift;
 
 namespace {
 
-template<class T>
+template <class T>
 void f(T&&) {
 	static_assert(is_tuple<T>::value);
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_CASE(test_type_traits) {
 

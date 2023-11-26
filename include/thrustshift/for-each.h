@@ -4,8 +4,7 @@
 #include <type_traits>
 #include <utility>
 
-#include <cuda/define_specifiers.hpp>
-
+#include <thrustshift/defines.h>
 #include <thrustshift/tuple-traits.h>
 #include <thrustshift/type-traits.h>
 
@@ -16,7 +15,9 @@ namespace tuple {
 namespace detail {
 
 template <typename Tuple, typename F, std::size_t... I>
-CUDA_FHD void for_each_impl(Tuple&& t, F&& f, std::index_sequence<I...>) {
+THRUSTSHIFT_FHD void for_each_impl(Tuple&& t,
+                                   F&& f,
+                                   std::index_sequence<I...>) {
 	using std::forward;
 	using std::get;
 	[[maybe_unused]] auto l = {(f(get<I>(forward<Tuple>(t))), 0)...};
@@ -25,7 +26,7 @@ CUDA_FHD void for_each_impl(Tuple&& t, F&& f, std::index_sequence<I...>) {
 } // namespace detail
 
 template <class TupleT, typename F>
-CUDA_FHD void for_each(TupleT&& t, F&& f) {
+THRUSTSHIFT_FHD void for_each(TupleT&& t, F&& f) {
 	auto seq = std::make_index_sequence<
 	    thrustshift::tuple_size<typename std::decay<TupleT>::type>::value>{};
 	using std::forward;
@@ -33,7 +34,7 @@ CUDA_FHD void for_each(TupleT&& t, F&& f) {
 }
 
 template <std::size_t N, class TupleT, typename F>
-CUDA_FHD void for_each_n(TupleT&& t, F&& f) {
+THRUSTSHIFT_FHD void for_each_n(TupleT&& t, F&& f) {
 	auto seq = std::make_index_sequence<N>{};
 	using std::forward;
 	detail::for_each_impl(forward<TupleT>(t), forward<F>(f), seq);
@@ -42,10 +43,10 @@ CUDA_FHD void for_each_n(TupleT&& t, F&& f) {
 namespace detail {
 
 template <typename TupleA, typename TupleB, typename F, std::size_t... I>
-CUDA_FHD void for_each_impl(TupleA&& a,
-                            TupleB&& b,
-                            F&& f,
-                            std::index_sequence<I...>) {
+THRUSTSHIFT_FHD void for_each_impl(TupleA&& a,
+                                   TupleB&& b,
+                                   F&& f,
+                                   std::index_sequence<I...>) {
 	using std::forward;
 	using std::get;
 	[[maybe_unused]] auto l = {
@@ -55,7 +56,7 @@ CUDA_FHD void for_each_impl(TupleA&& a,
 } // namespace detail
 
 template <class TupleA, class TupleB, typename F>
-CUDA_FHD void for_each(TupleA&& a, TupleB&& b, F&& f) {
+THRUSTSHIFT_FHD void for_each(TupleA&& a, TupleB&& b, F&& f) {
 
 	using TupleA_ = typename std::decay<TupleA>::type;
 	using TupleB_ = typename std::decay<TupleB>::type;
@@ -74,7 +75,7 @@ CUDA_FHD void for_each(TupleA&& a, TupleB&& b, F&& f) {
 }
 
 template <std::size_t N, class TupleA, class TupleB, typename F>
-CUDA_FHD void for_each_n(TupleA&& a, TupleB&& b, F&& f) {
+THRUSTSHIFT_FHD void for_each_n(TupleA&& a, TupleB&& b, F&& f) {
 
 	auto seq = std::make_index_sequence<N>{};
 

@@ -4,8 +4,6 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/runtime_api.hpp>
-
 #include <Eigen/Sparse>
 
 #include <boost/test/data/test_case.hpp>

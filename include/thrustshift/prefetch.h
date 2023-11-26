@@ -2,30 +2,32 @@
 
 #include <type_traits>
 
-#include <cuda/runtime_api.hpp>
+#include <thrustshift/defines.h>
 
 namespace thrustshift {
 
 namespace async {
 
-template <class Range, class Device>
-void prefetch(cuda::stream_t& stream, Device&& device, Range&& r) {
+// device = device id of target device, device = cudaCpuDeviceId will prefetch to host
+template <class Range>
+void prefetch(cudaStream_t& stream, int device_id, Range&& r) {
 	using T_ = typename std::remove_reference<Range>::type::value_type;
 	// Due to missing const_range in cuda-api-wrappers
 	using T = typename std::remove_const<T_>::type;
-	cuda::memory::managed::region_t region{const_cast<T*>(r.data()),
-	                                       r.size() * sizeof(T)};
-	cuda::memory::managed::async::prefetch(region, device, stream);
+
+	THRUSTSHIFT_CHECK_CUDA_ERROR(
+	    cudaMemPrefetchAsync(reinterpret_cast<const void*>(r.data()),
+	                         r.size() * sizeof(T),
+	                         device_id,
+	                         stream));
 }
 
 template <class Range>
-void prefetch_to_host(cuda::stream_t& stream, Range&& r) {
+void prefetch_to_host(cudaStream_t& stream, Range&& r) {
 	using T_ = typename std::remove_reference<Range>::type::value_type;
 	// Due to missing const_range in cuda-api-wrappers
 	using T = typename std::remove_const<T_>::type;
-	cuda::memory::managed::region_t region{const_cast<T*>(r.data()),
-	                                       r.size() * sizeof(T)};
-	cuda::memory::managed::async::prefetch_to_host(region, stream);
+	prefetch(stream, cudaCpuDeviceId, r);
 }
 
 } // namespace async

@@ -8,12 +8,11 @@
 
 #include <gsl-lite/gsl-lite.hpp>
 
-#include <cuda/runtime_api.hpp>
-
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
 
 #include <thrustshift/CSR.h>
+#include <thrustshift/defines.h>
 #include <thrustshift/managed-vector.h>
 #include <thrustshift/memory-resource.h>
 #include <thrustshift/random.h>
@@ -33,13 +32,12 @@ BOOST_AUTO_TEST_CASE(test_sort_batched_descending) {
 
 	random::generate_uniform_real(k_in, -10.0f, 10.0f, 1);
 	std::size_t batch_len = 10;
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
+	cudaStream_t stream = 0;
 	pmr::delayed_pool_type<pmr::managed_resource_type> pool;
 
 	async::sort_batched_descending(
 	    stream, k_in, k_out, v_in, v_out, batch_len, pool);
-	stream.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 	for (std::size_t batch_id = 0; batch_id < N / batch_len; ++batch_id) {
 		BOOST_TEST(std::is_sorted(k_out.rbegin() + batch_id * batch_len,
 		                          k_out.rbegin() + (batch_id + 1) * batch_len));
@@ -57,12 +55,11 @@ BOOST_AUTO_TEST_CASE(test_sort_batched_abs) {
 
 	random::generate_uniform_real(k_in, -10.0f, 10.0f, 1);
 	std::size_t batch_len = 8;
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
+	cudaStream_t stream = 0;
 	pmr::delayed_pool_type<pmr::managed_resource_type> pool;
 
 	async::sort_batched_abs(stream, k_in, k_out, v_in, v_out, batch_len, pool);
-	stream.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 	for (size_t batch_id = 0; batch_id < N / batch_len; ++batch_id) {
 
 		for (size_t i = 1; i < batch_len; ++i) {
@@ -83,12 +80,11 @@ BOOST_AUTO_TEST_CASE(test_sort_batched_abs_int) {
 
 	random::generate_uniform_real(k_in, -10.0f, 10.0f, 1);
 	std::size_t batch_len = 8;
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
+	cudaStream_t stream = 0;
 	pmr::delayed_pool_type<pmr::managed_resource_type> pool;
 
 	async::sort_batched_abs(stream, k_in, k_out, v_in, v_out, batch_len, pool);
-	stream.synchronize();
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
 	for (size_t batch_id = 0; batch_id < N / batch_len; ++batch_id) {
 
 		for (size_t i = 1; i < batch_len; ++i) {
@@ -136,16 +132,11 @@ BOOST_AUTO_TEST_CASE(test_sort_abs_descending_kernel) {
 	managed_vector<float> k_out(N);
 
 	random::generate_uniform_real(k_in, -10.0f, 10.0f, 1);
-	auto device = cuda::device::current::get();
-	auto stream = device.default_stream();
 
-	cuda::enqueue_launch(kernel::test_radix<float>,
-	                     stream,
-	                     cuda::make_launch_config(1, 8),
-	                     k_in.data(),
-	                     k_out.data(),
-	                     N);
-	stream.synchronize();
+	kernel::test_radix<float><<<1, 8>>>(k_in.data(), k_out.data(), N);
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaGetLastError());
+	THRUSTSHIFT_CHECK_CUDA_ERROR(cudaDeviceSynchronize());
+
 	for (size_t i = 1; i < N; ++i) {
 		BOOST_TEST(std::abs(k_out[i - 1]) >= std::abs(k_out[i]));
 	}
