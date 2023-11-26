@@ -6,10 +6,7 @@ CUDA library about what I consider useful and generic functions.
 
 * [CMakeshift](https://github.com/mbeutel/CMakeshift)
 * [gsl-lite](https://github.com/gsl-lite/gsl-lite), an implementation of the [C++ Core Guidelines Support Library](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#S-gsl)
-* [cuda-api-wrappers](https://github.com/eyalroz/cuda-api-wrappers)
 * [Eigen3](https://gitlab.com/libeigen/eigen)
-* [makeshift](https://github.com/mbeutel/makeshift)
-* [sysmakeshift](https://github.com/mbeutel/sysmakeshift)
 
 ## Design Concept
 
@@ -33,7 +30,7 @@ thrustshift::async::copy(stream, src, dst);
 ### Asynchronous namespace
 
 Where possible Thrustshift provides asynchronous functions in the `async` namespace.
-The first argument to these functions is always a `cuda::stream_t` of the [cuda-api-wrappers](https://github.com/eyalroz/cuda-api-wrappers).
+The first argument to these functions is always a `cudaStream_t`.
 E.g. Thrust only provides synchronous gather and scatter functions, which synchronize with
 the device.
 
@@ -93,9 +90,6 @@ Please adjust accordingly for your GPU architecture.
 cmake ... -DCMAKE_BUILD_TYPE=Release
   -DCMakeshift_DIR=$PATH_TO_CMAKESHIFT_BUILD_DIR
   -Dgsl-lite_DIR=$PATH_TO_GSL_LITE_BUILD_DIR
-  -Dcuda-api-wrappers_DIR=$PATH_TO_CUDA_API_WRAPPERS_BUILD_DIR
-  -Dsysmakeshift_DIR=$PATH_TO_SYSMAKESHIFT_BUILD_DIR
-  -Dmakeshift_DIR=$PATH_TO_MAKESHIFT_BUILD_DIR
   -DCMAKE_CUDA_ARCHITECTURES="75"
 ```
 
