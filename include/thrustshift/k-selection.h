@@ -156,9 +156,16 @@ CUDA_FD void bin_value256(T x,
 	const int mask = __match_any_sync(0xffffffff, bi) &
 	                 (~(1 << lane_id)); // set our own bit to zero
 #else
-	const int mask{};
-	assert(false);
-	__trap();
+	//
+	// Naiive match_any_sync implementation for sm_xx < sm_70
+	//
+	int mask{};
+	constexpr int warpSize = 32;
+	for (int other_lane_id = 0; other_lane_id < warpSize; ++other_lane_id) {
+		const int other_bi = __shfl_sync(0xffffffff, bi, other_lane_id);
+		mask |= ((other_bi == bi ? 1 : 0) << other_lane_id);
+	}
+	mask &= (~(1 << lane_id)); // set our own bit to zero
 #endif
 
 	const int lsbi = sizeof(int) * 8 - __clz(mask) -
