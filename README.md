@@ -8,7 +8,6 @@ CUDA library about what I consider useful and generic functions.
 * [gsl-lite](https://github.com/gsl-lite/gsl-lite), an implementation of the [C++ Core Guidelines Support Library](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#S-gsl)
 * [cuda-api-wrappers](https://github.com/eyalroz/cuda-api-wrappers)
 * [Eigen3](https://gitlab.com/libeigen/eigen)
-* [cuda-kat](https://github.com/eyalroz/cuda-kat) for a device compatible array implementation
 * [makeshift](https://github.com/mbeutel/makeshift)
 * [sysmakeshift](https://github.com/mbeutel/sysmakeshift)
 
@@ -97,7 +96,6 @@ cmake ... -DCMAKE_BUILD_TYPE=Release
   -Dcuda-api-wrappers_DIR=$PATH_TO_CUDA_API_WRAPPERS_BUILD_DIR
   -Dsysmakeshift_DIR=$PATH_TO_SYSMAKESHIFT_BUILD_DIR
   -Dmakeshift_DIR=$PATH_TO_MAKESHIFT_BUILD_DIR
-  -Dcuda-kat_DIR=$PATH_TO_CUDA_KAT_DIR
   -DCMAKE_CUDA_ARCHITECTURES="75"
 ```
 

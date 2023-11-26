@@ -4,7 +4,7 @@
 
 #include <thrust/tuple.h>
 
-#include <kat/containers/array.hpp>
+#include <cuda/std/array>
 
 #include <thrustshift/COO.h>
 #include <thrustshift/CSR.h>
@@ -112,26 +112,26 @@ CUDA_FHD auto array2thrust_tuple(const Arr<T, N>& arr) {
 namespace detail {
 
 template <class Tuple, std::size_t... I>
-CUDA_FHD auto tuple2kat_array_impl(const Tuple& tup,
-                                   std::index_sequence<I...>) {
+CUDA_FHD auto tuple2cuda_array_impl(const Tuple& tup,
+                                    std::index_sequence<I...>) {
 	using std::get;
 	// https://stackoverflow.com/questions/25732386/what-is-stddecay-and-when-it-should-be-used#:~:text=It%20is%20used%20in%20the,is%20stored%20and%20so%20on.
 	// `std::decay(decltype(get<0>(tup))::type` can be used to deduce the type of
 	// `auto value = std::get<0>(tup)`
 	using T = typename std::decay<decltype(get<0>(tup))>::type;
 	constexpr std::size_t N = sizeof(Tuple) / sizeof(T);
-	return kat::array<T, N>({get<I>(tup)...});
+	return cuda::std::array<T, N>({get<I>(tup)...});
 }
 
 } // namespace detail
 
-//! Convert a tuple of equal types `T` into a kat array.
+//! Convert a tuple of equal types `T` into a cuda array.
 //! If the tuple has different types, the behaviour is undefined.
 template <typename T, typename... Rest, template <typename...> class Tuple>
-CUDA_FHD auto tuple2kat_array(const Tuple<T, Rest...>& tup) {
+CUDA_FHD auto tuple2cuda_array(const Tuple<T, Rest...>& tup) {
 	constexpr std::size_t len = sizeof(Tuple<T, Rest...>) / sizeof(T);
 	using I = std::make_index_sequence<len>;
-	return detail::tuple2kat_array_impl(tup, I{});
+	return detail::tuple2cuda_array_impl(tup, I{});
 }
 
 } // namespace thrustshift

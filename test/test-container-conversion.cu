@@ -127,7 +127,7 @@ BOOST_AUTO_TEST_CASE(test_tuple_to_array_conversion) {
 
 	std::tuple<double, double, double> tup(1, 2, 3);
 
-	auto arr = tuple2kat_array(tup);
+	auto arr = tuple2cuda_array(tup);
 	BOOST_TEST(arr[0] == 1.0);
 	BOOST_TEST(arr[1] == 2.0);
 	BOOST_TEST(arr[2] == 3.0);

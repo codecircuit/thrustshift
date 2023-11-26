@@ -6,7 +6,6 @@ find_package(cuda-api-wrappers REQUIRED)
 find_package(CUB REQUIRED)
 find_package(sysmakeshift REQUIRED)
 find_package(makeshift REQUIRED)
-find_package(cuda-kat REQUIRED)
 
 add_library(thrustshift INTERFACE)
 
@@ -28,7 +27,6 @@ target_link_libraries(
     sysmakeshift::sysmakeshift
     CUB::CUB
     makeshift::makeshift
-    cuda-kat::cuda-kat
 )
 
 install(

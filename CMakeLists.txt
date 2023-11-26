@@ -31,5 +31,4 @@ cmakeshift_install_basic_package_files(
   "sysmakeshift"
   "makeshift"
   "gsl-lite"
-  "cuda-kat"
 )

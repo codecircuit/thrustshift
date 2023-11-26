@@ -8,8 +8,6 @@
 
 #include <thrust/tuple.h>
 
-#include <kat/containers/array.hpp>
-
 #include <thrustshift/container-conversion.h>
 #include <thrustshift/for-each.h>
 #include <thrustshift/functional.h>

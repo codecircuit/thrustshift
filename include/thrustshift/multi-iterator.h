@@ -4,15 +4,15 @@
 #include <type_traits>
 #include <utility>
 
+#include <cuda/std/array>
+
 #include <cuda/define_specifiers.hpp>
 
 #include <thrust/tuple.h>
 
-#include <kat/containers/array.hpp>
-
+#include <thrustshift/container-conversion.h>
 #include <thrustshift/transform.h>
 #include <thrustshift/type-traits.h>
-#include <thrustshift/container-conversion.h>
 
 namespace thrustshift {
 
@@ -45,7 +45,11 @@ CUDA_FHD auto array_of_iterators2reference_thrust_tuple(const Arr<It, N>& arr) {
 	return detail::array_of_iterators2reference_thrust_tuple_impl(arr, I{});
 }
 
-template <class It, std::size_t N, class Ref = multi_iterator_reference<typename std::iterator_traits<It>::reference, N>>
+template <class It,
+          std::size_t N,
+          class Ref = multi_iterator_reference<
+              typename std::iterator_traits<It>::reference,
+              N>>
 class multi_iterator {
 
    public:
@@ -56,10 +60,11 @@ class multi_iterator {
 	    typename std::iterator_traits<It>::iterator_category;
 
 	CUDA_FHD
-	multi_iterator(const kat::array<It, N>& iterators) : iterators_(iterators) {
+	multi_iterator(const cuda::std::array<It, N>& iterators)
+	    : iterators_(iterators) {
 	}
 	CUDA_FHD
-	multi_iterator(kat::array<It, N>&& iterators)
+	multi_iterator(cuda::std::array<It, N>&& iterators)
 	    : iterators_(std::move(iterators)) {
 	}
 
@@ -96,9 +101,8 @@ class multi_iterator {
 	}
 
    private:
-	kat::array<It, N> iterators_;
+	cuda::std::array<It, N> iterators_;
 };
-
 
 //
 // Define free operators +,-
