@@ -2,14 +2,68 @@
 
 #include <memory>
 #include <memory_resource>
+#include <type_traits>
 
 #include <gsl-lite/gsl-lite.hpp>
-
-#include <sysmakeshift/memory.hpp>
 
 namespace thrustshift {
 
 namespace detail {
+
+template <typename T>
+struct remove_extent_only;
+template <typename T>
+struct remove_extent_only<T[]> {
+	using type = T;
+};
+template <typename T, std::ptrdiff_t N>
+struct remove_extent_only<T[N]> {
+	using type = T;
+};
+template <typename T>
+using remove_extent_only_t = typename remove_extent_only<T>::type;
+
+template <typename T, typename A>
+class allocator_deleter : private A // for EBO
+{
+   public:
+	allocator_deleter(const A& _alloc) : A(_alloc) {
+	}
+	void operator()(T* ptr) noexcept {
+		std::allocator_traits<A>::destroy(*this, ptr);
+		std::allocator_traits<A>::deallocate(*this, ptr, 1);
+	}
+};
+template <typename T, typename A>
+class allocator_deleter<T[], A> : private A // for EBO
+{
+   private:
+	std::size_t size_;
+
+   public:
+	allocator_deleter(const A& _alloc, std::size_t _size)
+	    : A(_alloc), size_(_size) {
+	}
+	void operator()(T ptr[]) noexcept {
+		for (std::ptrdiff_t i = 0, n = std::ptrdiff_t(size_); i != n; ++i) {
+			std::allocator_traits<A>::destroy(*this, &ptr[i]);
+		}
+		std::allocator_traits<A>::deallocate(*this, ptr, size_);
+	}
+};
+template <typename T, std::ptrdiff_t N, typename A>
+class allocator_deleter<T[N], A> : private A // for EBO
+{
+   public:
+	allocator_deleter(const A& _alloc) : A(_alloc) {
+	}
+	void operator()(T ptr[]) noexcept {
+		for (std::ptrdiff_t i = 0; i != N; ++i) {
+			std::allocator_traits<A>::destroy(*this, &ptr[i]);
+		}
+		std::allocator_traits<A>::deallocate(*this, ptr, N);
+	}
+};
 
 //! Allocate without initialization
 template <typename T, typename A, typename SizeC>
@@ -18,16 +72,15 @@ T* allocate_array(A& alloc, SizeC sizeC) {
 }
 
 template <typename ArrayT, typename A>
-std::enable_if_t<
-    sysmakeshift::detail::extent_only<ArrayT>::value == 0,
-    std::unique_ptr<ArrayT, sysmakeshift::allocator_deleter<ArrayT, A>>>
-allocate_unique(A alloc, std::size_t size) {
-	using T = std::remove_cv_t<sysmakeshift::detail::remove_extent_only_t<ArrayT>>;
+std::unique_ptr<ArrayT, allocator_deleter<ArrayT, A>> allocate_unique(
+    A alloc,
+    std::size_t size) {
+	using T = std::remove_cv_t<remove_extent_only_t<ArrayT>>;
 	static_assert(
 	    std::is_same<typename std::allocator_traits<A>::value_type, T>::value,
 	    "allocator has mismatching value_type");
 
-	T* ptr = detail::allocate_array<T>(alloc, size);
+	T* ptr = allocate_array<T>(alloc, size);
 	return {ptr, {std::move(alloc), size}};
 }
 
@@ -52,7 +105,7 @@ class not_a_vector {
 	}
 
    private:
-	std::unique_ptr<T[], sysmakeshift::allocator_deleter<T[], Allocator>> ptr_;
+	std::unique_ptr<T[], detail::allocator_deleter<T[], Allocator>> ptr_;
 	std::size_t size_;
 };
 

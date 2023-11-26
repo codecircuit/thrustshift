@@ -4,7 +4,6 @@ find_package(CMakeshift REQUIRED)
 find_package(gsl-lite REQUIRED)
 find_package(CUB REQUIRED)
 find_package(CUDAToolkit REQUIRED)
-find_package(sysmakeshift REQUIRED)
 
 add_library(thrustshift INTERFACE)
 
@@ -23,7 +22,6 @@ target_link_libraries(
   thrustshift
   INTERFACE
     gsl::gsl-lite-v1
-    sysmakeshift::sysmakeshift
     CUDA::cudart
     CUB::CUB
 )
